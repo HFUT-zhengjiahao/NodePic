@@ -1,6 +1,6 @@
 {
   "name": "gpt-image-playground",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
@@ -36,7 +36,6 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4.3.0",
     "@trivago/prettier-plugin-sort-imports": "^5.2.2",
     "@types/mime-types": "^3.0.1",
@@ -44,7 +43,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9",
-    "eslint-config-next": "15.3.1",
+    "eslint-config-next": "^16.2.7",
     "prettier": "^3.8.4",
     "prettier-plugin-tailwindcss": "^0.6.14",
     "tailwindcss": "^4.3.0",

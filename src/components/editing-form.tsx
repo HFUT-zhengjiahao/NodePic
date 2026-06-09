@@ -214,23 +214,35 @@ export function EditingForm({
     }, [editOriginalImageSize]);
 
     React.useEffect(() => {
-        setEditGeneratedMaskFile(null);
-        setEditIsMaskSaved(false);
-        setEditOriginalImageSize(null);
-        setFirstImagePreviewUrl(null);
-        setEditDrawnPoints([]);
-        setEditMaskPreviewUrl(null);
+        let cancelled = false;
 
-        if (imageFiles.length > 0 && sourceImagePreviewUrls.length > 0) {
-            const img = new window.Image();
-            img.onload = () => {
-                setEditOriginalImageSize({ width: img.width, height: img.height });
-            };
-            img.src = sourceImagePreviewUrls[0];
-            setFirstImagePreviewUrl(sourceImagePreviewUrls[0]);
-        } else {
-            setEditShowMaskEditor(false);
-        }
+        queueMicrotask(() => {
+            if (cancelled) return;
+
+            setEditGeneratedMaskFile(null);
+            setEditIsMaskSaved(false);
+            setEditOriginalImageSize(null);
+            setFirstImagePreviewUrl(null);
+            setEditDrawnPoints([]);
+            setEditMaskPreviewUrl(null);
+
+            if (imageFiles.length > 0 && sourceImagePreviewUrls.length > 0) {
+                const img = new window.Image();
+                img.onload = () => {
+                    if (!cancelled) {
+                        setEditOriginalImageSize({ width: img.width, height: img.height });
+                    }
+                };
+                img.src = sourceImagePreviewUrls[0];
+                setFirstImagePreviewUrl(sourceImagePreviewUrls[0]);
+            } else {
+                setEditShowMaskEditor(false);
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
     }, [
         imageFiles,
         sourceImagePreviewUrls,

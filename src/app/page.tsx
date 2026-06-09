@@ -157,22 +157,32 @@ export default function HomePage() {
     }, [editSourceImagePreviewUrls]);
 
     React.useEffect(() => {
-        try {
-            const storedHistory = localStorage.getItem('openaiImageHistory');
-            if (storedHistory) {
-                const parsedHistory: HistoryMetadata[] = JSON.parse(storedHistory);
-                if (Array.isArray(parsedHistory)) {
-                    setHistory(parsedHistory);
-                } else {
-                    console.warn('Invalid history data found in localStorage.');
-                    localStorage.removeItem('openaiImageHistory');
+        let cancelled = false;
+
+        queueMicrotask(() => {
+            if (cancelled) return;
+
+            try {
+                const storedHistory = localStorage.getItem('openaiImageHistory');
+                if (storedHistory) {
+                    const parsedHistory: HistoryMetadata[] = JSON.parse(storedHistory);
+                    if (Array.isArray(parsedHistory)) {
+                        setHistory(parsedHistory);
+                    } else {
+                        console.warn('Invalid history data found in localStorage.');
+                        localStorage.removeItem('openaiImageHistory');
+                    }
                 }
+            } catch (e) {
+                console.error('Failed to load or parse history from localStorage:', e);
+                localStorage.removeItem('openaiImageHistory');
             }
-        } catch (e) {
-            console.error('Failed to load or parse history from localStorage:', e);
-            localStorage.removeItem('openaiImageHistory');
-        }
-        setIsInitialLoad(false);
+            setIsInitialLoad(false);
+        });
+
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     React.useEffect(() => {
@@ -191,10 +201,20 @@ export default function HomePage() {
         };
 
         fetchAuthStatus();
-        const storedHash = localStorage.getItem('clientPasswordHash');
-        if (storedHash) {
-            setClientPasswordHash(storedHash);
-        }
+
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (cancelled) return;
+
+            const storedHash = localStorage.getItem('clientPasswordHash');
+            if (storedHash) {
+                setClientPasswordHash(storedHash);
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     React.useEffect(() => {
@@ -214,12 +234,22 @@ export default function HomePage() {
     }, [editSourceImagePreviewUrls]);
 
     React.useEffect(() => {
-        const storedPref = localStorage.getItem('imageGenSkipDeleteConfirm');
-        if (storedPref === 'true') {
-            setSkipDeleteConfirmation(true);
-        } else if (storedPref === 'false') {
-            setSkipDeleteConfirmation(false);
-        }
+        let cancelled = false;
+
+        queueMicrotask(() => {
+            if (cancelled) return;
+
+            const storedPref = localStorage.getItem('imageGenSkipDeleteConfirm');
+            if (storedPref === 'true') {
+                setSkipDeleteConfirmation(true);
+            } else if (storedPref === 'false') {
+                setSkipDeleteConfirmation(false);
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     React.useEffect(() => {
