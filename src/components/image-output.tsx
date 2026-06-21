@@ -4,6 +4,16 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Loader2, Send, Grid } from 'lucide-react';
 import Image from 'next/image';
+import * as React from 'react';
+
+function ElapsedTimer({ startTime, className }: { startTime: number; className?: string }) {
+    const [now, setNow] = React.useState(() => Date.now());
+    React.useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), 100);
+        return () => clearInterval(id);
+    }, []);
+    return <span className={cn('tabular-nums', className)}>{Math.max(0, (now - startTime) / 1000).toFixed(1)}s</span>;
+}
 
 type ImageInfo = {
     path: string;
@@ -16,6 +26,7 @@ type ImageOutputProps = {
     onViewChange: (view: 'grid' | number) => void;
     altText?: string;
     isLoading: boolean;
+    loadingStartTime: number | null;
     onSendToEdit: (filename: string) => void;
     currentMode: 'generate' | 'edit';
     baseImagePreviewUrl: string | null;
@@ -35,6 +46,7 @@ export function ImageOutput({
     onViewChange,
     altText = 'Generated image output',
     isLoading,
+    loadingStartTime,
     onSendToEdit,
     currentMode,
     baseImagePreviewUrl,
@@ -79,6 +91,9 @@ export function ImageOutput({
                             <div className='absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-white/80'>
                                 <Loader2 className='h-4 w-4 animate-spin' />
                                 <p className='text-sm'>Streaming...</p>
+                                {loadingStartTime !== null && (
+                                    <ElapsedTimer startTime={loadingStartTime} className='text-sm text-white/50' />
+                                )}
                             </div>
                         </div>
                     ) : currentMode === 'edit' && baseImagePreviewUrl ? (
@@ -94,12 +109,18 @@ export function ImageOutput({
                             <div className='absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white/80'>
                                 <Loader2 className='mb-2 h-8 w-8 animate-spin' />
                                 <p>Editing image...</p>
+                                {loadingStartTime !== null && (
+                                    <ElapsedTimer startTime={loadingStartTime} className='mt-1 text-sm text-white/50' />
+                                )}
                             </div>
                         </div>
                     ) : (
                         <div className='flex flex-col items-center justify-center text-white/60'>
                             <Loader2 className='mb-2 h-8 w-8 animate-spin' />
                             <p>Generating image...</p>
+                            {loadingStartTime !== null && (
+                                <ElapsedTimer startTime={loadingStartTime} className='mt-1 text-sm text-white/40' />
+                            )}
                         </div>
                     )
                 ) : imageBatch && imageBatch.length > 0 ? (

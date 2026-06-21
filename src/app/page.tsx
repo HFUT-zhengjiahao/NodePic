@@ -71,6 +71,7 @@ export default function HomePage() {
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [isLoading, setIsLoading] = React.useState(false);
+    const [generationStartTime, setGenerationStartTime] = React.useState<number | null>(null);
     const [isSendingToEdit, setIsSendingToEdit] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
     const [latestImageBatch, setLatestImageBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
@@ -338,6 +339,7 @@ export default function HomePage() {
         let durationMs = 0;
 
         setIsLoading(true);
+        setGenerationStartTime(startTime);
         setError(null);
         setLatestImageBatch(null);
         setImageOutputView('grid');
@@ -686,6 +688,7 @@ export default function HomePage() {
         } finally {
             if (durationMs === 0) durationMs = Date.now() - startTime;
             setIsLoading(false);
+            setGenerationStartTime(null);
         }
     };
 
@@ -1007,6 +1010,7 @@ export default function HomePage() {
                             onViewChange={setImageOutputView}
                             altText='Generated image output'
                             isLoading={isLoading || isSendingToEdit}
+                            loadingStartTime={generationStartTime}
                             onSendToEdit={handleSendToEdit}
                             currentMode={mode}
                             baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
