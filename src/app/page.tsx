@@ -6,9 +6,18 @@ import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { PasswordDialog } from '@/components/password-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { calculateApiCost, type CostDetails, type GptImageModel } from '@/lib/cost-utils';
-import { getPresetDimensions } from '@/lib/size-utils';
+import { calculateApiCost, type ApiUsage, type CostDetails } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
+import {
+    DEFAULT_GPT_IMAGE_MODEL,
+    MAX_EDIT_IMAGES,
+    type HistoryGptImageModel,
+    type ImageBackground,
+    type ImageModeration,
+    type ImageOutputFormat,
+    type ImageQuality
+} from '@/lib/models';
+import { getPresetDimensions } from '@/lib/size-utils';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
 
@@ -21,14 +30,15 @@ export type HistoryMetadata = {
     images: HistoryImage[];
     storageModeUsed?: 'fs' | 'indexeddb';
     durationMs: number;
-    quality: GenerationFormData['quality'];
-    background: GenerationFormData['background'];
-    moderation: GenerationFormData['moderation'];
+    quality: ImageQuality;
+    background: ImageBackground;
+    moderation: ImageModeration;
     prompt: string;
     mode: 'generate' | 'edit';
     costDetails: CostDetails | null;
-    output_format?: GenerationFormData['output_format'];
-    model?: GptImageModel;
+    output_format?: ImageOutputFormat;
+    /** Absent on entries written before the field existed; those were all produced by gpt-image-1. */
+    model?: HistoryGptImageModel;
 };
 
 type DrawnPoint = {
@@ -36,8 +46,6 @@ type DrawnPoint = {
     y: number;
     size: number;
 };
-
-const MAX_EDIT_IMAGES = 10;
 
 const explicitModeClient = process.env.NEXT_PUBLIC_IMAGE_STORAGE_MODE;
 
@@ -96,6 +104,10 @@ export default function HomePage() {
     const [editCustomWidth, setEditCustomWidth] = React.useState<number>(1024);
     const [editCustomHeight, setEditCustomHeight] = React.useState<number>(1024);
     const [editQuality, setEditQuality] = React.useState<EditingFormData['quality']>('auto');
+    const [editOutputFormat, setEditOutputFormat] = React.useState<EditingFormData['output_format']>('png');
+    const [editCompression, setEditCompression] = React.useState([100]);
+    const [editBackground, setEditBackground] = React.useState<EditingFormData['background']>('auto');
+    const [editModeration, setEditModeration] = React.useState<EditingFormData['moderation']>('auto');
     const [editBrushSize, setEditBrushSize] = React.useState([20]);
     const [editShowMaskEditor, setEditShowMaskEditor] = React.useState(false);
     const [editGeneratedMaskFile, setEditGeneratedMaskFile] = React.useState<File | null>(null);
@@ -106,7 +118,7 @@ export default function HomePage() {
     const [editDrawnPoints, setEditDrawnPoints] = React.useState<DrawnPoint[]>([]);
     const [editMaskPreviewUrl, setEditMaskPreviewUrl] = React.useState<string | null>(null);
 
-    const [genModel, setGenModel] = React.useState<GenerationFormData['model']>('gpt-image-2');
+    const [genModel, setGenModel] = React.useState<GenerationFormData['model']>(DEFAULT_GPT_IMAGE_MODEL);
     const [genPrompt, setGenPrompt] = React.useState('');
     const [genN, setGenN] = React.useState([1]);
     const [genSize, setGenSize] = React.useState<GenerationFormData['size']>('auto');
@@ -118,7 +130,7 @@ export default function HomePage() {
     const [genBackground, setGenBackground] = React.useState<GenerationFormData['background']>('auto');
     const [genModeration, setGenModeration] = React.useState<GenerationFormData['moderation']>('auto');
 
-    const [editModel, setEditModel] = React.useState<EditingFormData['model']>('gpt-image-2');
+    const [editModel, setEditModel] = React.useState<EditingFormData['model']>(DEFAULT_GPT_IMAGE_MODEL);
 
     // Streaming state (shared between generate and edit modes)
     const [enableStreaming, setEnableStreaming] = React.useState(false);
@@ -334,6 +346,76 @@ export default function HomePage() {
         return 'image/png';
     };
 
+    // Shared tail for streamed and non-streamed responses: persist blobs (indexeddb mode), show the batch, record history.
+    const processApiImages = async (
+        images: ApiImageResponseItem[],
+        usage: ApiUsage | undefined,
+        durationMs: number
+    ) => {
+        const isGenerate = mode === 'generate';
+        const currentModel = isGenerate ? genModel : editModel;
+        const newHistoryEntry: HistoryMetadata = {
+            timestamp: Date.now(),
+            images: images.map((img) => ({ filename: img.filename })),
+            storageModeUsed: effectiveStorageModeClient,
+            durationMs,
+            quality: isGenerate ? genQuality : editQuality,
+            background: isGenerate ? genBackground : editBackground,
+            moderation: isGenerate ? genModeration : editModeration,
+            output_format: isGenerate ? genOutputFormat : editOutputFormat,
+            prompt: isGenerate ? genPrompt : editPrompt,
+            mode,
+            costDetails: calculateApiCost(usage, currentModel),
+            model: currentModel
+        };
+
+        let newImageBatchPromises: Promise<{ path: string; filename: string } | null>[];
+        if (effectiveStorageModeClient === 'indexeddb') {
+            newImageBatchPromises = images.map(async (img) => {
+                if (!img.b64_json) {
+                    console.warn(`Image ${img.filename} missing b64_json in indexeddb mode.`);
+                    return null;
+                }
+                try {
+                    const byteCharacters = atob(img.b64_json);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+
+                    const actualMimeType = getMimeTypeFromFormat(img.output_format);
+                    const blob = new Blob([byteArray], { type: actualMimeType });
+
+                    await db.images.put({ filename: img.filename, blob });
+
+                    const blobUrl = URL.createObjectURL(blob);
+                    blobUrlCacheRef.current.set(img.filename, blobUrl);
+
+                    return { filename: img.filename, path: blobUrl };
+                } catch (dbError) {
+                    console.error(`Error saving blob ${img.filename} to IndexedDB:`, dbError);
+                    setError(`Failed to save image ${img.filename} to local database.`);
+                    return null;
+                }
+            });
+        } else {
+            newImageBatchPromises = images
+                .filter((img) => !!img.path)
+                .map((img) => Promise.resolve({ path: img.path!, filename: img.filename }));
+        }
+
+        const processedImages = (await Promise.all(newImageBatchPromises)).filter(Boolean) as {
+            path: string;
+            filename: string;
+        }[];
+
+        setLatestImageBatch(processedImages);
+        setImageOutputView(processedImages.length > 1 ? 'grid' : 0);
+        setStreamingPreviewImages(new Map());
+        setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
+    };
+
     const handleApiCall = async (formData: GenerationFormData | EditingFormData) => {
         const startTime = Date.now();
         let durationMs = 0;
@@ -371,7 +453,7 @@ export default function HomePage() {
             const genSizeToSend =
                 genSize === 'custom'
                     ? `${genCustomWidth}x${genCustomHeight}`
-                    : (getPresetDimensions(genSize, genModel) ?? genSize);
+                    : (getPresetDimensions(genSize) ?? genSize);
             apiFormData.append('size', genSizeToSend);
             apiFormData.append('quality', genQuality);
             apiFormData.append('output_format', genOutputFormat);
@@ -384,15 +466,25 @@ export default function HomePage() {
             apiFormData.append('background', genBackground);
             apiFormData.append('moderation', genModeration);
         } else {
+            const editData = formData as EditingFormData;
             apiFormData.append('model', editModel);
             apiFormData.append('prompt', editPrompt);
             apiFormData.append('n', editN[0].toString());
             const editSizeToSend =
                 editSize === 'custom'
                     ? `${editCustomWidth}x${editCustomHeight}`
-                    : (getPresetDimensions(editSize, editModel) ?? editSize);
+                    : (getPresetDimensions(editSize) ?? editSize);
             apiFormData.append('size', editSizeToSend);
             apiFormData.append('quality', editQuality);
+            apiFormData.append('output_format', editOutputFormat);
+            if (
+                (editOutputFormat === 'jpeg' || editOutputFormat === 'webp') &&
+                editData.output_compression !== undefined
+            ) {
+                apiFormData.append('output_compression', editData.output_compression.toString());
+            }
+            apiFormData.append('background', editBackground);
+            apiFormData.append('moderation', editModeration);
 
             editImageFiles.forEach((file, index) => {
                 apiFormData.append(`image_${index}`, file, file.name);
@@ -438,7 +530,10 @@ export default function HomePage() {
                                 if (event.type === 'partial_image') {
                                     // Update streaming preview with partial image
                                     const imageIndex = event.index ?? 0;
-                                    const dataUrl = `data:image/png;base64,${event.b64_json}`;
+                                    const mimeType = getMimeTypeFromFormat(
+                                        mode === 'generate' ? genOutputFormat : editOutputFormat
+                                    );
+                                    const dataUrl = `data:${mimeType};base64,${event.b64_json}`;
                                     setStreamingPreviewImages((prev) => {
                                         const newMap = new Map(prev);
                                         newMap.set(imageIndex, dataUrl);
@@ -451,109 +546,7 @@ export default function HomePage() {
                                     durationMs = Date.now() - startTime;
 
                                     if (event.images && event.images.length > 0) {
-                                        let historyQuality: GenerationFormData['quality'] = 'auto';
-                                        let historyBackground: GenerationFormData['background'] = 'auto';
-                                        let historyModeration: GenerationFormData['moderation'] = 'auto';
-                                        let historyOutputFormat: GenerationFormData['output_format'] = 'png';
-                                        let historyPrompt: string = '';
-
-                                        if (mode === 'generate') {
-                                            historyQuality = genQuality;
-                                            historyBackground = genBackground;
-                                            historyModeration = genModeration;
-                                            historyOutputFormat = genOutputFormat;
-                                            historyPrompt = genPrompt;
-                                        } else {
-                                            historyQuality = editQuality;
-                                            historyBackground = 'auto';
-                                            historyModeration = 'auto';
-                                            historyOutputFormat = 'png';
-                                            historyPrompt = editPrompt;
-                                        }
-
-                                        const currentModel = mode === 'generate' ? genModel : editModel;
-                                        const costDetails = calculateApiCost(event.usage, currentModel);
-
-                                        const batchTimestamp = Date.now();
-                                        const newHistoryEntry: HistoryMetadata = {
-                                            timestamp: batchTimestamp,
-                                            images: event.images.map((img: { filename: string }) => ({
-                                                filename: img.filename
-                                            })),
-                                            storageModeUsed: effectiveStorageModeClient,
-                                            durationMs: durationMs,
-                                            quality: historyQuality,
-                                            background: historyBackground,
-                                            moderation: historyModeration,
-                                            output_format: historyOutputFormat,
-                                            prompt: historyPrompt,
-                                            mode: mode,
-                                            costDetails: costDetails,
-                                            model: currentModel
-                                        };
-
-                                        let newImageBatchPromises: Promise<{ path: string; filename: string } | null>[] =
-                                            [];
-                                        if (effectiveStorageModeClient === 'indexeddb') {
-                                            newImageBatchPromises = event.images.map(async (img: ApiImageResponseItem) => {
-                                                if (img.b64_json) {
-                                                    try {
-                                                        const byteCharacters = atob(img.b64_json);
-                                                        const byteNumbers = new Array(byteCharacters.length);
-                                                        for (let i = 0; i < byteCharacters.length; i++) {
-                                                            byteNumbers[i] = byteCharacters.charCodeAt(i);
-                                                        }
-                                                        const byteArray = new Uint8Array(byteNumbers);
-
-                                                        const actualMimeType = getMimeTypeFromFormat(img.output_format);
-                                                        const blob = new Blob([byteArray], { type: actualMimeType });
-
-                                                        await db.images.put({ filename: img.filename, blob });
-
-                                                        const blobUrl = URL.createObjectURL(blob);
-                                                        blobUrlCacheRef.current.set(img.filename, blobUrl);
-
-                                                        return { filename: img.filename, path: blobUrl };
-                                                    } catch (dbError) {
-                                                        console.error(
-                                                            `Error saving blob ${img.filename} to IndexedDB:`,
-                                                            dbError
-                                                        );
-                                                        setError(
-                                                            `Failed to save image ${img.filename} to local database.`
-                                                        );
-                                                        return null;
-                                                    }
-                                                } else {
-                                                    console.warn(
-                                                        `Image ${img.filename} missing b64_json in indexeddb mode.`
-                                                    );
-                                                    return null;
-                                                }
-                                            });
-                                        } else {
-                                            newImageBatchPromises = event.images
-                                                .filter((img: ApiImageResponseItem) => !!img.path)
-                                                .map((img: ApiImageResponseItem) =>
-                                                    Promise.resolve({
-                                                        path: img.path!,
-                                                        filename: img.filename
-                                                    })
-                                                );
-                                        }
-
-                                        const processedImages = (await Promise.all(newImageBatchPromises)).filter(
-                                            Boolean
-                                        ) as {
-                                            path: string;
-                                            filename: string;
-                                        }[];
-
-                                        setLatestImageBatch(processedImages);
-                                        setImageOutputView(processedImages.length > 1 ? 'grid' : 0);
-                                        setStreamingPreviewImages(new Map()); // Clear streaming previews
-
-                                        setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
+                                        await processApiImages(event.images, event.usage, durationMs);
                                     }
                                 }
                             } catch (parseError) {
@@ -583,97 +576,7 @@ export default function HomePage() {
 
             if (result.images && result.images.length > 0) {
                 durationMs = Date.now() - startTime;
-
-                let historyQuality: GenerationFormData['quality'] = 'auto';
-                let historyBackground: GenerationFormData['background'] = 'auto';
-                let historyModeration: GenerationFormData['moderation'] = 'auto';
-                let historyOutputFormat: GenerationFormData['output_format'] = 'png';
-                let historyPrompt: string = '';
-
-                if (mode === 'generate') {
-                    historyQuality = genQuality;
-                    historyBackground = genBackground;
-                    historyModeration = genModeration;
-                    historyOutputFormat = genOutputFormat;
-                    historyPrompt = genPrompt;
-                } else {
-                    historyQuality = editQuality;
-                    historyBackground = 'auto';
-                    historyModeration = 'auto';
-                    historyOutputFormat = 'png';
-                    historyPrompt = editPrompt;
-                }
-
-                const currentModel = mode === 'generate' ? genModel : editModel;
-                const costDetails = calculateApiCost(result.usage, currentModel);
-
-                const batchTimestamp = Date.now();
-                const newHistoryEntry: HistoryMetadata = {
-                    timestamp: batchTimestamp,
-                    images: result.images.map((img: { filename: string }) => ({ filename: img.filename })),
-                    storageModeUsed: effectiveStorageModeClient,
-                    durationMs: durationMs,
-                    quality: historyQuality,
-                    background: historyBackground,
-                    moderation: historyModeration,
-                    output_format: historyOutputFormat,
-                    prompt: historyPrompt,
-                    mode: mode,
-                    costDetails: costDetails,
-                    model: currentModel
-                };
-
-                let newImageBatchPromises: Promise<{ path: string; filename: string } | null>[] = [];
-                if (effectiveStorageModeClient === 'indexeddb') {
-                    newImageBatchPromises = result.images.map(async (img: ApiImageResponseItem) => {
-                        if (img.b64_json) {
-                            try {
-                                const byteCharacters = atob(img.b64_json);
-                                const byteNumbers = new Array(byteCharacters.length);
-                                for (let i = 0; i < byteCharacters.length; i++) {
-                                    byteNumbers[i] = byteCharacters.charCodeAt(i);
-                                }
-                                const byteArray = new Uint8Array(byteNumbers);
-
-                                const actualMimeType = getMimeTypeFromFormat(img.output_format);
-                                const blob = new Blob([byteArray], { type: actualMimeType });
-
-                                await db.images.put({ filename: img.filename, blob });
-
-                                const blobUrl = URL.createObjectURL(blob);
-                                blobUrlCacheRef.current.set(img.filename, blobUrl);
-
-                                return { filename: img.filename, path: blobUrl };
-                            } catch (dbError) {
-                                console.error(`Error saving blob ${img.filename} to IndexedDB:`, dbError);
-                                setError(`Failed to save image ${img.filename} to local database.`);
-                                return null;
-                            }
-                        } else {
-                            console.warn(`Image ${img.filename} missing b64_json in indexeddb mode.`);
-                            return null;
-                        }
-                    });
-                } else {
-                    newImageBatchPromises = result.images
-                        .filter((img: ApiImageResponseItem) => !!img.path)
-                        .map((img: ApiImageResponseItem) =>
-                            Promise.resolve({
-                                path: img.path!,
-                                filename: img.filename
-                            })
-                        );
-                }
-
-                const processedImages = (await Promise.all(newImageBatchPromises)).filter(Boolean) as {
-                    path: string;
-                    filename: string;
-                }[];
-
-                setLatestImageBatch(processedImages);
-                setImageOutputView(processedImages.length > 1 ? 'grid' : 0);
-
-                setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
+                await processApiImages(result.images, result.usage, durationMs);
             } else {
                 setLatestImageBatch(null);
                 throw new Error('API response did not contain valid image data or filenames.');
@@ -976,6 +879,14 @@ export default function HomePage() {
                                 setEditCustomHeight={setEditCustomHeight}
                                 editQuality={editQuality}
                                 setEditQuality={setEditQuality}
+                                editOutputFormat={editOutputFormat}
+                                setEditOutputFormat={setEditOutputFormat}
+                                editCompression={editCompression}
+                                setEditCompression={setEditCompression}
+                                editBackground={editBackground}
+                                setEditBackground={setEditBackground}
+                                editModeration={editModeration}
+                                setEditModeration={setEditModeration}
                                 editBrushSize={editBrushSize}
                                 setEditBrushSize={setEditBrushSize}
                                 editShowMaskEditor={editShowMaskEditor}

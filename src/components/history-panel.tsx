@@ -1,7 +1,6 @@
 'use client';
 
 import type { HistoryMetadata } from '@/app/page';
-import { getModelRates, type GptImageModel } from '@/lib/cost-utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -15,6 +14,8 @@ import {
     DialogFooter,
     DialogClose
 } from '@/components/ui/dialog';
+import { getModelRates, tokensToUsd, type ModelRates } from '@/lib/cost-utils';
+import { GPT_IMAGE_MODELS, type GptImageModel } from '@/lib/models';
 import { cn } from '@/lib/utils';
 import {
     Copy,
@@ -51,10 +52,24 @@ const formatDuration = (ms: number): string => {
     return `${(ms / 1000).toFixed(1)}s`;
 };
 
-const calculateCost = (value: number, rate: number): string => {
-    const cost = value * rate;
-    return isNaN(cost) ? 'N/A' : cost.toFixed(4);
-};
+const formatUsd = (tokens: number, perMillion: number): string => tokensToUsd(tokens, perMillion).toFixed(4);
+
+// Selectable models grouped by identical pricing, for the total-cost summary.
+const RATE_GROUPS = GPT_IMAGE_MODELS.reduce<{ rates: ModelRates; models: GptImageModel[] }[]>((groups, model) => {
+    const rates = getModelRates(model);
+    const group = groups.find(
+        (g) =>
+            g.rates.textInputPerMillion === rates.textInputPerMillion &&
+            g.rates.imageInputPerMillion === rates.imageInputPerMillion &&
+            g.rates.imageOutputPerMillion === rates.imageOutputPerMillion
+    );
+    if (group) {
+        group.models.push(model);
+    } else {
+        groups.push({ rates, models: [model] });
+    }
+    return groups;
+}, []);
 
 function HistoryPanelImpl({
     history,
@@ -121,31 +136,17 @@ function HistoryPanelImpl({
                                         A summary of the total estimated cost for all generated images in the history.
                                     </DialogDescription>
                                 </DialogHeader>
-                                <div className='space-y-1 pt-1 text-xs text-neutral-400'>
-                                    <p className='font-medium'>gpt-image-2:</p>
-                                    <ul className='list-disc pl-4'>
-                                        <li>Text Input: $5 / 1M tokens</li>
-                                        <li>Image Input: $8 / 1M tokens</li>
-                                        <li>Image Output: $30 / 1M tokens</li>
-                                    </ul>
-                                    <p className='mt-2 font-medium'>gpt-image-1.5:</p>
-                                    <ul className='list-disc pl-4'>
-                                        <li>Text Input: $5 / 1M tokens</li>
-                                        <li>Image Input: $8 / 1M tokens</li>
-                                        <li>Image Output: $32 / 1M tokens</li>
-                                    </ul>
-                                    <p className='mt-2 font-medium'>gpt-image-1:</p>
-                                    <ul className='list-disc pl-4'>
-                                        <li>Text Input: $5 / 1M tokens</li>
-                                        <li>Image Input: $10 / 1M tokens</li>
-                                        <li>Image Output: $40 / 1M tokens</li>
-                                    </ul>
-                                    <p className='mt-2 font-medium'>gpt-image-1-mini:</p>
-                                    <ul className='list-disc pl-4'>
-                                        <li>Text Input: $2 / 1M tokens</li>
-                                        <li>Image Input: $2.50 / 1M tokens</li>
-                                        <li>Image Output: $8 / 1M tokens</li>
-                                    </ul>
+                                <div className='space-y-2 pt-1 text-xs text-neutral-400'>
+                                    {RATE_GROUPS.map(({ rates, models }) => (
+                                        <div key={models.join(',')} className='space-y-1'>
+                                            <p className='font-medium'>{models.join(', ')}:</p>
+                                            <ul className='list-disc pl-4'>
+                                                <li>Text Input: ${rates.textInputPerMillion} / 1M tokens</li>
+                                                <li>Image Input: ${rates.imageInputPerMillion} / 1M tokens</li>
+                                                <li>Image Output: ${rates.imageOutputPerMillion} / 1M tokens</li>
+                                            </ul>
+                                        </div>
+                                    ))}
                                 </div>
                                 <div className='space-y-2 py-4 text-sm text-neutral-300'>
                                     <div className='flex justify-between'>
@@ -199,6 +200,7 @@ function HistoryPanelImpl({
                             const itemKey = item.timestamp;
                             const originalStorageMode = item.storageModeUsed || 'fs';
                             const outputFormat = item.output_format || 'png';
+                            const model = item.model ?? 'gpt-image-1';
 
                             let thumbnailUrl: string | undefined;
                             if (firstImage) {
@@ -289,13 +291,11 @@ function HistoryPanelImpl({
                                                         </DialogDescription>
                                                     </DialogHeader>
                                                     {(() => {
-                                                        const modelForRates: GptImageModel = (item.model ||
-                                                            'gpt-image-1') as GptImageModel;
-                                                        const rates = getModelRates(modelForRates);
+                                                        const rates = getModelRates(model);
                                                         return (
                                                             <>
                                                                 <div className='space-y-1 pt-1 text-xs text-neutral-400'>
-                                                                    <p>Pricing for {modelForRates}:</p>
+                                                                    <p>Pricing for {model}:</p>
                                                                     <ul className='list-disc pl-4'>
                                                                         <li>
                                                                             Text Input: ${rates.textInputPerMillion} /
@@ -306,8 +306,8 @@ function HistoryPanelImpl({
                                                                             1M tokens
                                                                         </li>
                                                                         <li>
-                                                                            Image Output: $
-                                                                            {rates.imageOutputPerMillion} / 1M tokens
+                                                                            Image Output: ${rates.imageOutputPerMillion}{' '}
+                                                                            / 1M tokens
                                                                         </li>
                                                                     </ul>
                                                                 </div>
@@ -317,9 +317,9 @@ function HistoryPanelImpl({
                                                                         <span>
                                                                             {item.costDetails.text_input_tokens.toLocaleString()}{' '}
                                                                             (~$
-                                                                            {calculateCost(
+                                                                            {formatUsd(
                                                                                 item.costDetails.text_input_tokens,
-                                                                                rates.textInputPerToken
+                                                                                rates.textInputPerMillion
                                                                             )}
                                                                             )
                                                                         </span>
@@ -330,10 +330,9 @@ function HistoryPanelImpl({
                                                                             <span>
                                                                                 {item.costDetails.image_input_tokens.toLocaleString()}{' '}
                                                                                 (~$
-                                                                                {calculateCost(
-                                                                                    item.costDetails
-                                                                                        .image_input_tokens,
-                                                                                    rates.imageInputPerToken
+                                                                                {formatUsd(
+                                                                                    item.costDetails.image_input_tokens,
+                                                                                    rates.imageInputPerMillion
                                                                                 )}
                                                                                 )
                                                                             </span>
@@ -344,9 +343,9 @@ function HistoryPanelImpl({
                                                                         <span>
                                                                             {item.costDetails.image_output_tokens.toLocaleString()}{' '}
                                                                             (~$
-                                                                            {calculateCost(
+                                                                            {formatUsd(
                                                                                 item.costDetails.image_output_tokens,
-                                                                                rates.imageOutputPerToken
+                                                                                rates.imageOutputPerMillion
                                                                             )}
                                                                             )
                                                                         </span>
@@ -355,7 +354,10 @@ function HistoryPanelImpl({
                                                                     <div className='flex justify-between font-medium text-white'>
                                                                         <span>Total Estimated Cost:</span>
                                                                         <span>
-                                                                            ${item.costDetails.estimated_cost_usd.toFixed(4)}
+                                                                            $
+                                                                            {item.costDetails.estimated_cost_usd.toFixed(
+                                                                                4
+                                                                            )}
                                                                         </span>
                                                                     </div>
                                                                 </div>
@@ -384,7 +386,7 @@ function HistoryPanelImpl({
                                             {formatDuration(item.durationMs)}
                                         </p>
                                         <p>
-                                            <span className='font-medium text-white/80'>Model:</span> {item.model || 'gpt-image-1'}
+                                            <span className='font-medium text-white/80'>Model:</span> {model}
                                         </p>
                                         <p>
                                             <span className='font-medium text-white/80'>Quality:</span> {item.quality}

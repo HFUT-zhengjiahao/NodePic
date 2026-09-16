@@ -1,3 +1,12 @@
+import {
+    DEFAULT_GPT_IMAGE_MODEL,
+    IMAGE_OUTPUT_FORMATS,
+    isGptImageModel,
+    type ImageBackground,
+    type ImageModeration,
+    type ImageOutputFormat,
+    type ImageQuality
+} from '@/lib/models';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
@@ -30,23 +39,43 @@ const openai = new OpenAI({
 
 const outputDir = path.resolve(process.cwd(), 'generated-images');
 
-// Define valid output formats for type safety
-const VALID_OUTPUT_FORMATS = ['png', 'jpeg', 'webp'] as const;
-type ValidOutputFormat = (typeof VALID_OUTPUT_FORMATS)[number];
-
 // Validate and normalize output format
-function validateOutputFormat(format: unknown): ValidOutputFormat {
+function validateOutputFormat(format: unknown): ImageOutputFormat {
     const normalized = String(format || 'png').toLowerCase();
 
     // Handle jpg -> jpeg normalization
     const mapped = normalized === 'jpg' ? 'jpeg' : normalized;
 
-    if (VALID_OUTPUT_FORMATS.includes(mapped as ValidOutputFormat)) {
-        return mapped as ValidOutputFormat;
+    if (IMAGE_OUTPUT_FORMATS.includes(mapped as ImageOutputFormat)) {
+        return mapped as ImageOutputFormat;
     }
 
     return 'png'; // default fallback
 }
+
+// Request fields shared by the generations and edits endpoints, read once from the multipart body.
+// Value validation beyond shape is left to OpenAI, whose 400 messages are surfaced to the client.
+function readImageParams(formData: FormData) {
+    const n = parseInt((formData.get('n') as string) || '1', 10);
+    const output_format = validateOutputFormat(formData.get('output_format'));
+    const compression = parseInt(formData.get('output_compression') as string, 10);
+    return {
+        n: Math.max(1, Math.min(n || 1, 10)),
+        size: (formData.get('size') as string) || 'auto',
+        quality: (formData.get('quality') as ImageQuality | null) || 'auto',
+        output_format,
+        background: (formData.get('background') as ImageBackground | null) || 'auto',
+        moderation: (formData.get('moderation') as ImageModeration | null) || 'auto',
+        ...((output_format === 'jpeg' || output_format === 'webp') && compression >= 0 && compression <= 100
+            ? { output_compression: compression }
+            : {})
+    };
+}
+
+// The SDK's ImageEditParams type omits `moderation`, but the edits endpoint accepts it (documented in the API
+// reference; the API rejects unknown parameter names, so the field is parsed rather than ignored).
+type EditParams = OpenAI.Images.ImageEditParams & { moderation?: ImageModeration };
+type EditParamsStreaming = OpenAI.Images.ImageEditParamsStreaming & { moderation?: ImageModeration };
 
 async function ensureOutputDirExists() {
     try {
@@ -119,65 +148,35 @@ export async function POST(request: NextRequest) {
 
         const mode = formData.get('mode') as 'generate' | 'edit' | null;
         const prompt = formData.get('prompt') as string | null;
-        const model =
-            (formData.get('model') as
-                | 'gpt-image-1'
-                | 'gpt-image-1-mini'
-                | 'gpt-image-1.5'
-                | 'gpt-image-2'
-                | null) || 'gpt-image-2';
+        const model = formData.get('model') || DEFAULT_GPT_IMAGE_MODEL;
 
         console.log(`Mode: ${mode}, Model: ${model}, Prompt: ${prompt ? prompt.substring(0, 50) + '...' : 'N/A'}`);
 
         if (!mode || !prompt) {
             return NextResponse.json({ error: 'Missing required parameters: mode and prompt' }, { status: 400 });
         }
+        if (!isGptImageModel(model)) {
+            return NextResponse.json({ error: `Unsupported model: ${String(model)}` }, { status: 400 });
+        }
+
+        const imageParams = readImageParams(formData);
+        const fileExtension = imageParams.output_format;
 
         // Check for streaming mode
         const streamEnabled = formData.get('stream') === 'true';
-        const partialImagesCount = parseInt((formData.get('partial_images') as string) || '2', 10);
+        const partialImages = Math.max(1, Math.min(parseInt((formData.get('partial_images') as string) || '2', 10), 3));
 
         let result: OpenAI.Images.ImagesResponse;
 
         if (mode === 'generate') {
-            const n = parseInt((formData.get('n') as string) || '1', 10);
-            // gpt-image-2 accepts arbitrary WxH strings that the SDK's narrow literal union doesn't express.
-            const size = ((formData.get('size') as string) || '1024x1024') as OpenAI.Images.ImageGenerateParams['size'];
-            const quality = (formData.get('quality') as OpenAI.Images.ImageGenerateParams['quality']) || 'auto';
-            const output_format =
-                (formData.get('output_format') as OpenAI.Images.ImageGenerateParams['output_format']) || 'png';
-            const output_compression_str = formData.get('output_compression') as string | null;
-            const background =
-                (formData.get('background') as OpenAI.Images.ImageGenerateParams['background']) || 'auto';
-            const moderation =
-                (formData.get('moderation') as OpenAI.Images.ImageGenerateParams['moderation']) || 'auto';
-
-            const baseParams = {
-                model,
-                prompt,
-                n: Math.max(1, Math.min(n || 1, 10)),
-                size,
-                quality,
-                output_format,
-                background,
-                moderation
-            };
-
-            if ((output_format === 'jpeg' || output_format === 'webp') && output_compression_str) {
-                const compression = parseInt(output_compression_str, 10);
-                if (!isNaN(compression) && compression >= 0 && compression <= 100) {
-                    (baseParams as OpenAI.Images.ImageGenerateParams).output_compression = compression;
-                }
-            }
+            const baseParams: OpenAI.Images.ImageGenerateParams = { model, prompt, ...imageParams };
 
             // Handle streaming mode for generation
             if (streamEnabled) {
-                const actualPartialImages = Math.max(1, Math.min(partialImagesCount, 3)) as 1 | 2 | 3;
-
-                const streamParams = {
+                const streamParams: OpenAI.Images.ImageGenerateParamsStreaming = {
                     ...baseParams,
-                    stream: true as const,
-                    partial_images: actualPartialImages
+                    stream: true,
+                    partial_images: partialImages
                 };
 
                 const stream = await openai.images.generate(streamParams);
@@ -185,7 +184,6 @@ export async function POST(request: NextRequest) {
                 // Create SSE response
                 const encoder = new TextEncoder();
                 const timestamp = Date.now();
-                const fileExtension = validateOutputFormat(output_format);
 
                 const readableStream = new ReadableStream({
                     async start(controller) {
@@ -240,10 +238,7 @@ export async function POST(request: NextRequest) {
 
                                     imageIndex++;
 
-                                    // Capture usage from completed event if available
-                                    if ('usage' in event && event.usage) {
-                                        finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
-                                    }
+                                    finalUsage = event.usage;
                                 }
                             }
 
@@ -271,20 +266,14 @@ export async function POST(request: NextRequest) {
                     headers: {
                         'Content-Type': 'text/event-stream',
                         'Cache-Control': 'no-cache',
-                        'Connection': 'keep-alive'
+                        Connection: 'keep-alive'
                     }
                 });
             }
 
-            const params: OpenAI.Images.ImageGenerateParams = baseParams;
-            console.log('Calling OpenAI generate with params:', params);
-            result = await openai.images.generate(params);
+            console.log('Calling OpenAI generate with params:', baseParams);
+            result = await openai.images.generate(baseParams);
         } else if (mode === 'edit') {
-            const n = parseInt((formData.get('n') as string) || '1', 10);
-            // gpt-image-2 accepts arbitrary WxH strings that the SDK's narrow literal union doesn't express.
-            const size = ((formData.get('size') as string) || 'auto') as OpenAI.Images.ImageEditParams['size'];
-            const quality = (formData.get('quality') as OpenAI.Images.ImageEditParams['quality']) || 'auto';
-
             const imageFiles: File[] = [];
             for (const [key, value] of formData.entries()) {
                 if (key.startsWith('image_') && value instanceof File) {
@@ -298,38 +287,33 @@ export async function POST(request: NextRequest) {
 
             const maskFile = formData.get('mask') as File | null;
 
-            const baseEditParams = {
+            const baseEditParams: EditParams = {
                 model,
                 prompt,
                 image: imageFiles,
-                n: Math.max(1, Math.min(n || 1, 10)),
-                size: size === 'auto' ? undefined : size,
-                quality: quality === 'auto' ? undefined : quality
+                ...imageParams,
+                ...(maskFile ? { mask: maskFile } : {})
             };
 
             // Handle streaming mode for editing
             if (streamEnabled) {
-                console.log('Calling OpenAI edit with streaming, params:', {
+                const streamEditParams: EditParamsStreaming = {
                     ...baseEditParams,
                     stream: true,
-                    partial_images: partialImagesCount,
+                    partial_images: partialImages
+                };
+
+                console.log('Calling OpenAI edit with streaming, params:', {
+                    ...streamEditParams,
                     image: `[${imageFiles.map((f) => f.name).join(', ')}]`,
                     mask: maskFile ? maskFile.name : 'N/A'
                 });
-
-                const streamEditParams = {
-                    ...baseEditParams,
-                    stream: true as const,
-                    partial_images: Math.max(1, Math.min(partialImagesCount, 3)) as 1 | 2 | 3,
-                    ...(maskFile ? { mask: maskFile } : {})
-                };
 
                 const stream = await openai.images.edit(streamEditParams);
 
                 // Create SSE response for edit
                 const encoder = new TextEncoder();
                 const timestamp = Date.now();
-                const fileExtension = 'png'; // Edit mode always outputs PNG
 
                 const readableStream = new ReadableStream({
                     async start(controller) {
@@ -384,10 +368,7 @@ export async function POST(request: NextRequest) {
 
                                     imageIndex++;
 
-                                    // Capture usage from completed event if available
-                                    if ('usage' in event && event.usage) {
-                                        finalUsage = event.usage as OpenAI.Images.ImagesResponse['usage'];
-                                    }
+                                    finalUsage = event.usage;
                                 }
                             }
 
@@ -415,22 +396,17 @@ export async function POST(request: NextRequest) {
                     headers: {
                         'Content-Type': 'text/event-stream',
                         'Cache-Control': 'no-cache',
-                        'Connection': 'keep-alive'
+                        Connection: 'keep-alive'
                     }
                 });
             }
 
-            const params: OpenAI.Images.ImageEditParams = {
-                ...baseEditParams,
-                ...(maskFile ? { mask: maskFile } : {})
-            };
-
             console.log('Calling OpenAI edit with params:', {
-                ...params,
+                ...baseEditParams,
                 image: `[${imageFiles.map((f) => f.name).join(', ')}]`,
                 mask: maskFile ? maskFile.name : 'N/A'
             });
-            result = await openai.images.edit(params);
+            result = await openai.images.edit(baseEditParams);
         } else {
             return NextResponse.json({ error: 'Invalid mode specified' }, { status: 400 });
         }
@@ -450,8 +426,6 @@ export async function POST(request: NextRequest) {
                 }
                 const buffer = Buffer.from(imageData.b64_json, 'base64');
                 const timestamp = Date.now();
-
-                const fileExtension = validateOutputFormat(formData.get('output_format'));
                 const filename = `${timestamp}-${index}.${fileExtension}`;
 
                 if (effectiveStorageMode === 'fs') {

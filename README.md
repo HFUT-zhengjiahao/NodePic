@@ -1,8 +1,8 @@
 # <img src="./public/favicon.svg" alt="Project Logo" width="30" height="30" style="vertical-align: middle; margin-right: 8px;"> GPT Image Playground
 
-A web-based playground to interact with OpenAI's GPT image models (`gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-1-mini`) for generating and editing images.
+A web-based playground to interact with OpenAI's GPT image models (`gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, and `gpt-image-2`) for generating and editing images.
 
-> **Note:** The playground defaults to `gpt-image-2`, OpenAI's latest GPT image model. It supports arbitrary resolutions up to 4K (with constraint validation) in addition to the legacy fixed sizes.
+> **Note:** The playground defaults to `gpt-image-2.5-flare`, OpenAI's fast default model. All three models support arbitrary resolutions up to 4K (with constraint validation) and transparent backgrounds (preview on `gpt-image-2`). The `gpt-image-2.5` models add the `xhigh` and `max` quality tiers. Retired models (`gpt-image-1`, `gpt-image-1-mini`, `gpt-image-1.5`) can no longer be selected, but images generated with them remain visible in the history with their original cost breakdown.
 
 <p align="center">
   <img src="./readme-images/interface.jpg" alt="Interface" width="600"/>
@@ -11,12 +11,12 @@ A web-based playground to interact with OpenAI's GPT image models (`gpt-image-2`
 ## ✨ Features
 
 *   **🎨 Image Generation Mode:** Create new images from text prompts.
-*   **🖌️ Image Editing Mode:** Modify existing images based on text prompts and optional masks.
-*   **⚙️ Full API Parameter Control:** Access and adjust all relevant parameters supported by the OpenAI Images API directly through the UI (size, quality, output format, compression, background, moderation, number of images).
-*   **📐 Custom Resolutions (gpt-image-2):** Pick from 2K/4K presets or enter an arbitrary Width × Height with live validation against the model's constraints (multiples of 16, max 3840px per edge, ≤ 3:1 aspect ratio, 655,360 to 8,294,400 total pixels).
+*   **🖌️ Image Editing Mode:** Modify existing images (up to 16 source images per request) based on text prompts and optional masks.
+*   **⚙️ Full API Parameter Control:** Access and adjust all relevant parameters supported by the OpenAI Images API directly through the UI, in both generate and edit mode (size, quality including the `xhigh`/`max` tiers, output format, compression, background, moderation, number of images).
+*   **📐 Custom Resolutions:** Pick from the 2048×2048, 3072×2048 or 2048×3072 presets or enter an arbitrary Width × Height with live validation against the model constraints (multiples of 16, max 3840px per edge, ≤ 3:1 aspect ratio, 655,360 to 8,294,400 total pixels).
 *   **🎭 Integrated Masking Tool:** Easily create or upload masks directly within the editing mode to specify areas for modification. Draw directly on the image to generate a mask.
 
-     > ⚠️ Please note that `gpt-image-1`'s masking feature does not guarantee 100% control at this time. <br>1) [It's a known & acknowledged model limitation.](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/37) <br>2) [OpenAI are looking to address it in a future update.](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/41)
+     > ⚠️ Please note that the GPT Image models' masking feature does not guarantee 100% control at this time. <br>1) [It's a known & acknowledged model limitation.](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/37) <br>2) [OpenAI are looking to address it in a future update.](https://community.openai.com/t/gpt-image-1-problems-with-mask-edits/1240639/41)
 <p align="center">
   <img src="./readme-images/mask-creation.jpg" alt="Interface" width="350"/>
 </p>
@@ -63,7 +63,7 @@ Follow these steps to get the playground running locally.
 
 ### Prerequisites
 
-*   [Node.js](https://nodejs.org/) (Version 20 or later required)
+*   [Node.js](https://nodejs.org/) (Version 22 or later required)
 *   [npm](https://www.npmjs.com/), [yarn](https://yarnpkg.com/), [pnpm](https://pnpm.io/), or [bun](https://bun.sh/)
 
 ### 1. Set Up API Key 🟢
@@ -157,7 +157,7 @@ npm run dev
 
 ### 4. Open the Playground 🟢
 
-Open [http://localhost:3000](http://localhost:3000) in your web browser. You should now be able to use the gpt-image-1 Playground!
+Open [http://localhost:3000](http://localhost:3000) in your web browser. You should now be able to use the GPT Image Playground!
 
 ## 🤝 Contributing
 

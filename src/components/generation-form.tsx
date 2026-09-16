@@ -1,40 +1,27 @@
 'use client';
 
+import { ImageOptions } from '@/components/image-options';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { getPresetTooltip, validateGptImage2Size } from '@/lib/size-utils';
 import {
-    Square,
-    RectangleHorizontal,
-    RectangleVertical,
-    Sparkles,
-    Eraser,
-    ShieldCheck,
-    ShieldAlert,
-    FileImage,
-    Tally1,
-    Tally2,
-    Tally3,
-    Loader2,
-    BrickWall,
-    Lock,
-    LockOpen,
-    HelpCircle,
-    SquareDashed
-} from 'lucide-react';
+    GPT_IMAGE_MODELS,
+    type GptImageModel,
+    type ImageBackground,
+    type ImageModeration,
+    type ImageOutputFormat,
+    type ImageQuality
+} from '@/lib/models';
+import { validateCustomSize, type SizePreset } from '@/lib/size-utils';
+import { HelpCircle, Loader2, Lock, LockOpen } from 'lucide-react';
 import * as React from 'react';
-
-import type { GptImageModel } from '@/lib/cost-utils';
-import type { SizePreset } from '@/lib/size-utils';
 
 export type GenerationFormData = {
     prompt: string;
@@ -42,11 +29,11 @@ export type GenerationFormData = {
     size: SizePreset;
     customWidth: number;
     customHeight: number;
-    quality: 'low' | 'medium' | 'high' | 'auto';
-    output_format: 'png' | 'jpeg' | 'webp';
+    quality: ImageQuality;
+    output_format: ImageOutputFormat;
     output_compression?: number;
-    background: 'transparent' | 'opaque' | 'auto';
-    moderation: 'low' | 'auto';
+    background: ImageBackground;
+    moderation: ImageModeration;
     model: GptImageModel;
 };
 
@@ -86,30 +73,6 @@ type GenerationFormProps = {
     setPartialImages: React.Dispatch<React.SetStateAction<1 | 2 | 3>>;
 };
 
-const RadioItemWithIcon = ({
-    value,
-    id,
-    label,
-    Icon
-}: {
-    value: string;
-    id: string;
-    label: string;
-    Icon: React.ElementType;
-}) => (
-    <div className='flex items-center space-x-2'>
-        <RadioGroupItem
-            value={value}
-            id={id}
-            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
-        />
-        <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-white/80'>
-            <Icon className='h-5 w-5 text-white/60' />
-            {label}
-        </Label>
-    </div>
-);
-
 export function GenerationForm({
     onSubmit,
     isLoading,
@@ -146,10 +109,9 @@ export function GenerationForm({
     setPartialImages
 }: GenerationFormProps) {
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
-    const isGptImage2 = model === 'gpt-image-2';
     const customSizeValidation =
-        size === 'custom' ? validateGptImage2Size(customWidth, customHeight) : { valid: true as const };
-    const customSizeInvalid = size === 'custom' && !customSizeValidation.valid;
+        size === 'custom' ? validateCustomSize(customWidth, customHeight) : { valid: true as const };
+    const customSizeInvalid = !customSizeValidation.valid;
 
     // Disable streaming when n > 1 (OpenAI limitation)
     React.useEffect(() => {
@@ -157,20 +119,6 @@ export function GenerationForm({
             setEnableStreaming(false);
         }
     }, [n, enableStreaming, setEnableStreaming]);
-
-    // 'custom' is only valid on gpt-image-2; reset when switching to a legacy model
-    React.useEffect(() => {
-        if (!isGptImage2 && size === 'custom') {
-            setSize('auto');
-        }
-    }, [isGptImage2, size, setSize]);
-
-    // Reset transparent background when switching to gpt-image-2 (not supported)
-    React.useEffect(() => {
-        if (isGptImage2 && background === 'transparent') {
-            setBackground('auto');
-        }
-    }, [isGptImage2, background, setBackground]);
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -212,7 +160,9 @@ export function GenerationForm({
                             </Button>
                         )}
                     </div>
-                    <CardDescription className='mt-1 text-white/60'>Create a new image from a text prompt.</CardDescription>
+                    <CardDescription className='mt-1 text-white/60'>
+                        Create a new image from a text prompt.
+                    </CardDescription>
                 </div>
                 <ModeToggle currentMode={currentMode} onModeChange={onModeChange} />
             </CardHeader>
@@ -223,25 +173,21 @@ export function GenerationForm({
                             Model
                         </Label>
                         <div className='flex items-center gap-4'>
-                            <Select value={model} onValueChange={(value) => setModel(value as GenerationFormData['model'])} disabled={isLoading}>
+                            <Select
+                                value={model}
+                                onValueChange={(value) => setModel(value as GptImageModel)}
+                                disabled={isLoading}>
                                 <SelectTrigger
                                     id='model-select'
-                                    className='w-[180px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
+                                    className='w-[220px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
                                     <SelectValue placeholder='Select model' />
                                 </SelectTrigger>
                                 <SelectContent className='border-white/20 bg-black text-white'>
-                                    <SelectItem value='gpt-image-2' className='focus:bg-white/10'>
-                                        gpt-image-2
-                                    </SelectItem>
-                                    <SelectItem value='gpt-image-1.5' className='focus:bg-white/10'>
-                                        gpt-image-1.5
-                                    </SelectItem>
-                                    <SelectItem value='gpt-image-1' className='focus:bg-white/10'>
-                                        gpt-image-1
-                                    </SelectItem>
-                                    <SelectItem value='gpt-image-1-mini' className='focus:bg-white/10'>
-                                        gpt-image-1-mini
-                                    </SelectItem>
+                                    {GPT_IMAGE_MODELS.map((id) => (
+                                        <SelectItem key={id} value={id} className='focus:bg-white/10'>
+                                            {id}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                             <Tooltip>
@@ -252,7 +198,7 @@ export function GenerationForm({
                                             checked={enableStreaming}
                                             onCheckedChange={(checked) => setEnableStreaming(!!checked)}
                                             disabled={isLoading || n[0] > 1}
-                                            className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black disabled:cursor-not-allowed disabled:opacity-50'
+                                            className='border-white/40 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
                                         />
                                         <Label
                                             htmlFor='enable-streaming'
@@ -353,193 +299,28 @@ export function GenerationForm({
                         />
                     </div>
 
-                    <div className='space-y-3'>
-                        <Label className='block text-white'>Size</Label>
-                        <RadioGroup
-                            value={size}
-                            onValueChange={(value) => setSize(value as GenerationFormData['size'])}
-                            disabled={isLoading}
-                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='auto' id='size-auto' label='Auto' Icon={Sparkles} />
-                            {isGptImage2 && (
-                                <RadioItemWithIcon
-                                    value='custom'
-                                    id='size-custom'
-                                    label='Custom'
-                                    Icon={SquareDashed}
-                                />
-                            )}
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div>
-                                        <RadioItemWithIcon
-                                            value='square'
-                                            id='size-square'
-                                            label='Square'
-                                            Icon={Square}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>{getPresetTooltip('square', model)}</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div>
-                                        <RadioItemWithIcon
-                                            value='landscape'
-                                            id='size-landscape'
-                                            label='Landscape'
-                                            Icon={RectangleHorizontal}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>{getPresetTooltip('landscape', model)}</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div>
-                                        <RadioItemWithIcon
-                                            value='portrait'
-                                            id='size-portrait'
-                                            label='Portrait'
-                                            Icon={RectangleVertical}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent>{getPresetTooltip('portrait', model)}</TooltipContent>
-                            </Tooltip>
-                        </RadioGroup>
-                        {isGptImage2 && size === 'custom' && (
-                            <div className='space-y-2 rounded-md border border-white/10 bg-white/5 p-3'>
-                                <div className='flex items-center gap-3'>
-                                    <div className='flex-1 space-y-1'>
-                                        <Label htmlFor='custom-width' className='text-xs text-white/70'>
-                                            Width (px)
-                                        </Label>
-                                        <Input
-                                            id='custom-width'
-                                            type='number'
-                                            min={16}
-                                            max={3840}
-                                            step={16}
-                                            value={customWidth}
-                                            onChange={(e) => setCustomWidth(parseInt(e.target.value, 10) || 0)}
-                                            disabled={isLoading}
-                                            className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
-                                        />
-                                    </div>
-                                    <span className='pt-5 text-white/60'>×</span>
-                                    <div className='flex-1 space-y-1'>
-                                        <Label htmlFor='custom-height' className='text-xs text-white/70'>
-                                            Height (px)
-                                        </Label>
-                                        <Input
-                                            id='custom-height'
-                                            type='number'
-                                            min={16}
-                                            max={3840}
-                                            step={16}
-                                            value={customHeight}
-                                            onChange={(e) => setCustomHeight(parseInt(e.target.value, 10) || 0)}
-                                            disabled={isLoading}
-                                            className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
-                                        />
-                                    </div>
-                                </div>
-                                <p className='text-xs text-white/50'>
-                                    {(customWidth * customHeight).toLocaleString()} pixels (
-                                    {((customWidth * customHeight) / 8_294_400 * 100).toFixed(1)}% of max) ·{' '}
-                                    {customWidth > 0 && customHeight > 0
-                                        ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1 ratio`
-                                        : '—'}
-                                </p>
-                                {!customSizeValidation.valid && (
-                                    <p className='text-xs text-red-400'>{customSizeValidation.reason}</p>
-                                )}
-                                <p className='text-xs text-white/40'>
-                                    Constraints: multiples of 16, max edge 3840px, aspect ratio ≤ 3:1, 655,360 to
-                                    8,294,400 total pixels.
-                                </p>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className='space-y-3'>
-                        <Label className='block text-white'>Quality</Label>
-                        <RadioGroup
-                            value={quality}
-                            onValueChange={(value) => setQuality(value as GenerationFormData['quality'])}
-                            disabled={isLoading}
-                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='auto' id='quality-auto' label='Auto' Icon={Sparkles} />
-                            <RadioItemWithIcon value='low' id='quality-low' label='Low' Icon={Tally1} />
-                            <RadioItemWithIcon value='medium' id='quality-medium' label='Medium' Icon={Tally2} />
-                            <RadioItemWithIcon value='high' id='quality-high' label='High' Icon={Tally3} />
-                        </RadioGroup>
-                    </div>
-
-                    {!isGptImage2 && (
-                        <div className='space-y-3'>
-                            <Label className='block text-white'>Background</Label>
-                            <RadioGroup
-                                value={background}
-                                onValueChange={(value) => setBackground(value as GenerationFormData['background'])}
-                                disabled={isLoading}
-                                className='flex flex-wrap gap-x-5 gap-y-3'>
-                                <RadioItemWithIcon value='auto' id='bg-auto' label='Auto' Icon={Sparkles} />
-                                <RadioItemWithIcon value='opaque' id='bg-opaque' label='Opaque' Icon={BrickWall} />
-                                <RadioItemWithIcon
-                                    value='transparent'
-                                    id='bg-transparent'
-                                    label='Transparent'
-                                    Icon={Eraser}
-                                />
-                            </RadioGroup>
-                        </div>
-                    )}
-
-                    <div className='space-y-3'>
-                        <Label className='block text-white'>Output Format</Label>
-                        <RadioGroup
-                            value={outputFormat}
-                            onValueChange={(value) => setOutputFormat(value as GenerationFormData['output_format'])}
-                            disabled={isLoading}
-                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='png' id='format-png' label='PNG' Icon={FileImage} />
-                            <RadioItemWithIcon value='jpeg' id='format-jpeg' label='JPEG' Icon={FileImage} />
-                            <RadioItemWithIcon value='webp' id='format-webp' label='WebP' Icon={FileImage} />
-                        </RadioGroup>
-                    </div>
-
-                    {showCompression && (
-                        <div className='space-y-2 pt-2 transition-opacity duration-300'>
-                            <Label htmlFor='compression-slider' className='text-white'>
-                                Compression: {compression[0]}%
-                            </Label>
-                            <Slider
-                                id='compression-slider'
-                                min={0}
-                                max={100}
-                                step={1}
-                                value={compression}
-                                onValueChange={setCompression}
-                                disabled={isLoading}
-                                className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
-                            />
-                        </div>
-                    )}
-
-                    <div className='space-y-3'>
-                        <Label className='block text-white'>Moderation Level</Label>
-                        <RadioGroup
-                            value={moderation}
-                            onValueChange={(value) => setModeration(value as GenerationFormData['moderation'])}
-                            disabled={isLoading}
-                            className='flex flex-wrap gap-x-5 gap-y-3'>
-                            <RadioItemWithIcon value='auto' id='mod-auto' label='Auto' Icon={ShieldCheck} />
-                            <RadioItemWithIcon value='low' id='mod-low' label='Low' Icon={ShieldAlert} />
-                        </RadioGroup>
-                    </div>
+                    <ImageOptions
+                        idPrefix='gen'
+                        model={model}
+                        disabled={isLoading}
+                        size={size}
+                        setSize={setSize}
+                        customWidth={customWidth}
+                        setCustomWidth={setCustomWidth}
+                        customHeight={customHeight}
+                        setCustomHeight={setCustomHeight}
+                        sizeValidation={customSizeValidation}
+                        quality={quality}
+                        setQuality={setQuality}
+                        background={background}
+                        setBackground={setBackground}
+                        outputFormat={outputFormat}
+                        setOutputFormat={setOutputFormat}
+                        compression={compression}
+                        setCompression={setCompression}
+                        moderation={moderation}
+                        setModeration={setModeration}
+                    />
                 </CardContent>
                 <CardFooter className='border-t border-white/10 p-4'>
                     <Button
