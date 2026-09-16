@@ -5,7 +5,7 @@ A web-based playground to interact with OpenAI's GPT image models (`gpt-image-2.
 > **Note:** The playground defaults to `gpt-image-2.5-flare`, OpenAI's fast default model. All three models support arbitrary resolutions up to 4K (with constraint validation) and transparent backgrounds (preview on `gpt-image-2`). The `gpt-image-2.5` models add the `xhigh` and `max` quality tiers. Retired models (`gpt-image-1`, `gpt-image-1-mini`, `gpt-image-1.5`) can no longer be selected, but images generated with them remain visible in the history with their original cost breakdown.
 
 <p align="center">
-  <img src="./readme-images/interface.jpg" alt="Interface" width="600"/>
+  <img src="./readme-images/interface.jpg" alt="Interface" width="900"/>
 </p>
 
 ## ✨ Features
