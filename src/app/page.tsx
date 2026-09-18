@@ -1293,6 +1293,11 @@ export default function HomePage() {
                                 })}
                             </p>
                         )}
+                        <p className='text-slate-500'>
+                            {t('Deleted files are moved to generated-images/.trash and kept for {days} days.', {
+                                days: 30
+                            })}
+                        </p>
                         {!!cleanupPreview?.untracked && (
                             <p className='text-slate-500'>
                                 {t('{count} unregistered file(s) are left untouched.', { count: cleanupPreview.untracked })}

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { unregisterImages } from '@/lib/image-index';
+import { trashImage } from '@/lib/image-trash';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
@@ -72,8 +73,8 @@ export async function POST(request: NextRequest) {
         const filepath = path.join(outputDir, filename);
 
         try {
-            await fs.unlink(filepath);
-            console.log(`Successfully deleted image: ${filepath}`);
+            const { trashedTo } = await trashImage(filename);
+            console.log(`Moved image to the trash: ${trashedTo}`);
             deletionResults.push({ filename, success: true });
         } catch (error: unknown) {
             console.error(`Error deleting image ${filepath}:`, error);

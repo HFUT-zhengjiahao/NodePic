@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import { withIndexLock } from '@/lib/image-index';
+import { purgeOldTrash, trashImage, TRASH_RETENTION_DAYS } from '@/lib/image-trash';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
@@ -109,9 +110,9 @@ export async function POST(request: NextRequest) {
 
                 if (!dryRun) {
                     try {
-                        await fs.unlink(filepath);
+                        await trashImage(name);
                     } catch (error) {
-                        console.error(`Could not remove orphaned image ${name}:`, error);
+                        console.error(`Could not move orphaned image ${name} to the trash:`, error);
                         continue;
                     }
                     delete index.files[name];
@@ -128,9 +129,11 @@ export async function POST(request: NextRequest) {
             };
         });
 
+        const purged = dryRun ? 0 : await purgeOldTrash();
+
         console.log(
             `Image cleanup (${dryRun ? 'dry run' : 'applied'}): ${outcome.deletedFiles.length} deletable, ` +
-                `${outcome.skippedRecent.length} too recent, ${outcome.untracked.length} untracked.`
+                `${outcome.skippedRecent.length} too recent, ${outcome.untracked.length} untracked, ${purged} purged.`
         );
 
         return NextResponse.json({
@@ -142,7 +145,8 @@ export async function POST(request: NextRequest) {
             untracked: outcome.untracked,
             freedBytes: outcome.freedBytes,
             kept: keep.size,
-            minAgeMinutes: MIN_AGE_MS / 60000
+            minAgeMinutes: MIN_AGE_MS / 60000,
+            trashRetentionDays: TRASH_RETENTION_DAYS
         });
     } catch (error) {
         console.error('Image cleanup failed:', error);

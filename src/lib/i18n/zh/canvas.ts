@@ -114,5 +114,6 @@ export const canvas: Record<string, string> = {
     'Auto arrange': '自动排版',
     'Lay every node out by lineage with no overlap': '按血缘关系重新排列所有节点，保证不重叠',
     'Arranged {count} node(s) with no overlap.': '已重排 {count} 个节点，互不重叠。',
+    'Deleted files are moved to generated-images/.trash and kept for {days} days.': '删除的文件会先移到 generated-images/.trash，保留 {days} 天，可手动找回。',
     'An unexpected error occurred.': '出错了，请重试。'
 };
