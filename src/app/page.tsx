@@ -3,7 +3,6 @@
 import { CanvasBoard } from '@/components/canvas/canvas-board';
 import { CanvasSidebar } from '@/components/canvas/canvas-sidebar';
 import { HistoryGallery } from '@/components/history/history-gallery';
-import { LanguageToggle } from '@/components/language-toggle';
 import { SettingsButton, type ClientDefaults } from '@/components/settings-button';
 import { Button } from '@/components/ui/button';
 import {
@@ -478,13 +477,7 @@ export default function Home() {
     );
 
     return (
-        <main className='flex min-h-screen flex-col items-center bg-slate-50 px-4 py-4 text-slate-900 md:px-8 lg:px-10'>
-            <div className='mb-3 flex w-full max-w-screen-2xl items-start justify-end gap-3'>
-                {/* Navigation lives in the sidebar and "shut down" lives in the settings panel, so the
-                    top bar keeps only the language switch and stays out of the way. */}
-                <LanguageToggle />
-            </div>
-
+        <main className='flex min-h-screen flex-col items-center bg-slate-50 px-4 py-2 text-slate-900 md:px-8 lg:px-10'>
             {/* One layout for both views. The sidebar used to be rendered twice — once inside a flex
                 row for the canvas, once as a block above the gallery — which is why the history page
                 ended up pushed underneath it. */}
@@ -505,6 +498,16 @@ export default function Home() {
                     onRename={handleRenameCanvas}
                     onDuplicate={handleDuplicateCanvas}
                     onDelete={handleDeleteCanvas}
+                    footer={
+                        <SettingsButton
+                            defaults={clientSettings}
+                            onDefaultsChange={updateClientSettings}
+                            onNotify={notify}
+                            passwordHash={clientPasswordHash}
+                            onPasswordChange={updatePassword}
+                            compact={isCanvasListCollapsed}
+                        />
+                    }
                 />
 
                 {/* Hidden rather than unmounted: a running queue and the undo stack must survive a
@@ -523,15 +526,6 @@ export default function Home() {
                             passwordHash={clientPasswordHash}
                         />
                     ) : null}
-                    <div className='absolute bottom-4 left-4 z-20'>
-                        <SettingsButton
-                            defaults={clientSettings}
-                            onDefaultsChange={updateClientSettings}
-                            onNotify={notify}
-                            passwordHash={clientPasswordHash}
-                            onPasswordChange={updatePassword}
-                        />
-                    </div>
                 </div>
 
                 {view === 'history' && (

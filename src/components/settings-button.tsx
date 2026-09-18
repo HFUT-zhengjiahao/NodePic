@@ -1,5 +1,6 @@
 'use client';
 
+import { LanguageToggle } from '@/components/language-toggle';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -41,13 +42,16 @@ export function SettingsButton({
     onDefaultsChange,
     onNotify,
     passwordHash,
-    onPasswordChange
+    onPasswordChange,
+    compact = false
 }: {
     defaults: ClientDefaults;
     onDefaultsChange: (next: ClientDefaults) => void;
     onNotify: (text: string, tone?: 'info' | 'success' | 'error') => void;
     passwordHash?: string | null;
     onPasswordChange?: (hash: string | null) => void;
+    /** Rail-sized: icon only, stretching to the sidebar width. */
+    compact?: boolean;
 }) {
     const { t } = useI18n();
     const [open, setOpen] = React.useState(false);
@@ -190,10 +194,13 @@ export function SettingsButton({
                     setOpen(true);
                     void load();
                 }}
-                className='border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'
-                title={t('Settings')}>
-                <SettingsIcon className='mr-1.5 h-4 w-4' />
-                {t('Settings')}
+                className={`border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900 ${
+                    compact ? 'h-8 w-8 shrink-0 p-0' : 'w-full justify-start'
+                }`}
+                title={t('Settings')}
+                aria-label={t('Settings')}>
+                <SettingsIcon className={compact ? 'h-4 w-4' : 'mr-1.5 h-4 w-4'} />
+                {compact ? null : t('Settings')}
             </Button>
 
             <Dialog open={open} onOpenChange={setOpen}>
@@ -377,6 +384,11 @@ export function SettingsButton({
                             </div>
                         </section>
                     )}
+
+                    <section className='space-y-2 border-t border-slate-100 pt-4'>
+                        <h3 className='text-[13px] font-semibold text-slate-800'>{t('Language')}</h3>
+                        <LanguageToggle />
+                    </section>
 
                     <section className='space-y-2 border-t border-slate-100 pt-4'>
                         <h3 className='text-[13px] font-semibold text-slate-800'>{t('Server')}</h3>

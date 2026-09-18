@@ -23,6 +23,8 @@ export type CanvasSidebarProps = {
     onRename: (id: string, name: string) => void;
     onDuplicate: (id: string) => void;
     onDelete: (id: string) => void;
+    /** Rendered at the bottom of the rail — the settings panel sits here, not on the canvas. */
+    footer?: React.ReactNode;
 };
 
 function formatWhen(timestamp: number): string {
@@ -53,7 +55,8 @@ export function CanvasSidebar({
     onCreate,
     onRename,
     onDuplicate,
-    onDelete
+    onDelete,
+    footer
 }: CanvasSidebarProps) {
     const { t } = useI18n();
     const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -85,7 +88,7 @@ export function CanvasSidebar({
 
     if (collapsed) {
         return (
-            <div className='sticky top-1 flex w-12 shrink-0 flex-col items-center gap-1.5 pt-1'>
+            <div className='sticky top-1 flex h-[calc(100dvh-1rem)] w-12 shrink-0 flex-col items-center gap-1.5 pt-1'>
                 <Button
                     type='button'
                     variant='outline'
@@ -106,12 +109,13 @@ export function CanvasSidebar({
                     className='h-8 w-8 border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
                     <Plus className='h-4 w-4' />
                 </Button>
+                <div className='mt-auto'>{footer}</div>
             </div>
         );
     }
 
     return (
-        <aside className='sticky top-1 flex max-h-[calc(100dvh-1rem)] w-56 shrink-0 flex-col gap-3'>
+        <aside className='sticky top-1 flex h-[calc(100dvh-1rem)] w-56 shrink-0 flex-col gap-3'>
             <div className='flex flex-col gap-0.5'>
                 {navButton('canvas', Workflow, t('Canvas'))}
                 {navButton('history', History, t('History'))}
@@ -245,6 +249,8 @@ export function CanvasSidebar({
                         );
                     })}
                 </div>
+
+                {footer && <div className='mt-auto border-t border-slate-200 pt-3'>{footer}</div>}
             </div>
         </aside>
     );
