@@ -1,3 +1,4 @@
+import { loadAllCanvasNodes } from '@/lib/canvas-store';
 import type { CanvasTaskData } from '@/lib/canvas-types';
 import type { Edge, Node } from '@xyflow/react';
 
@@ -28,11 +29,16 @@ export function readStoredCanvas(): StoredCanvas | null {
  * Every image file the canvas still depends on: each node's own results plus the source pictures of
  * edit nodes. Deleting one of these behind the canvas' back leaves a node that can never run again.
  */
-export function collectCanvasFilenames(canvas: StoredCanvas | null = readStoredCanvas()): Set<string> {
+export function collectCanvasFilenames(canvas?: StoredCanvas | null): Set<string> {
     const filenames = new Set<string>();
-    for (const node of canvas?.nodes ?? []) {
-        node.data?.images?.forEach((image) => image?.filename && filenames.add(image.filename));
-        node.data?.sourceFilenames?.forEach((filename) => filename && filenames.add(filename));
+    // No explicit canvas means "everything the user has": every canvas, not just the open one — a file
+    // used by a canvas that happens not to be on screen must never be treated as an orphan.
+    const sources = canvas ? [canvas] : [{ nodes: loadAllCanvasNodes() }];
+    for (const source of sources) {
+        for (const node of source?.nodes ?? []) {
+            node.data?.images?.forEach((image) => image?.filename && filenames.add(image.filename));
+            node.data?.sourceFilenames?.forEach((filename) => filename && filenames.add(filename));
+        }
     }
     return filenames;
 }
@@ -45,9 +51,8 @@ export function findCanvasReferences(filenames: string[]): string[] {
 
 /** How many canvas nodes depend on the given file. */
 export function countCanvasReferences(filename: string): number {
-    const canvas = readStoredCanvas();
     let count = 0;
-    for (const node of canvas?.nodes ?? []) {
+    for (const node of loadAllCanvasNodes()) {
         const usedAsSource = node.data?.sourceFilenames?.includes(filename);
         const usedAsResult = node.data?.images?.some((image) => image.filename === filename);
         if (usedAsSource || usedAsResult) count += 1;

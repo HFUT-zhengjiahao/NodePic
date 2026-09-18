@@ -38,7 +38,8 @@ import { Brush, Download, ImagePlus, LayoutGrid, Plus, Sparkles, Trash2, Undo2, 
 import Image from 'next/image';
 import * as React from 'react';
 
-import { CANVAS_HINT_KEY as HINT_KEY, CANVAS_STORAGE_KEY as STORAGE_KEY } from '@/lib/canvas-refs';
+import { CANVAS_HINT_KEY as HINT_KEY } from '@/lib/canvas-refs';
+import { loadCanvasNodes, saveCanvasNodes, type StoredCanvasNode } from '@/lib/canvas-store';
 
 /** Shared look for every lineage edge: smooth left-to-right curve with an arrow head. */
 const EDGE_STYLE = { stroke: '#a5b4fc', strokeWidth: 2 } as const;
@@ -92,6 +93,10 @@ function buildEdges(nodes: TaskNodeType[]): Edge[] {
 }
 
 type CanvasBoardProps = {
+    /** Which saved canvas this board shows. Changing it remounts the board (see page.tsx). */
+    canvasId: string;
+    /** Called after every persisted change so the sidebar can refresh its counters. */
+    onSaved?: () => void;
     onTaskComplete?: (entry: HistoryMetadata) => void;
     /** Surfaces short messages in the app-level toast (connection changes, queueing, undo…). */
     onNotify?: (text: string, tone?: 'info' | 'success' | 'error') => void;
@@ -102,14 +107,10 @@ type CanvasBoardProps = {
 const MAX_CONCURRENT_RUNS = 2;
 const MAX_UNDO_STEPS = 25;
 
-function loadSnapshot(): CanvasSnapshot {
+function loadSnapshot(canvasId: string): CanvasSnapshot {
     if (typeof window === 'undefined') return { nodes: [] };
     try {
-        const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (!raw) return { nodes: [] };
-        const parsed = JSON.parse(raw) as CanvasSnapshot;
-        const nodes = Array.isArray(parsed.nodes)
-            ? parsed.nodes.map((node) => ({
+        const nodes = loadCanvasNodes(canvasId).map((node) => ({
                   ...node,
                   // A node interrupted by a reload must not stay stuck in the "running" state.
                   // (Masks are reconciled against IndexedDB once it has loaded.)
@@ -118,8 +119,7 @@ function loadSnapshot(): CanvasSnapshot {
                       status:
                           node.data.status === 'running' || node.data.status === 'queued' ? 'idle' : node.data.status
                   }
-              }))
-            : [];
+              }));
         // Edges from older snapshots are deliberately dropped: buildEdges() recomputes them from the
         // source lists, which is what keeps the picture and the line in agreement.
         return { nodes };
@@ -129,9 +129,9 @@ function loadSnapshot(): CanvasSnapshot {
     }
 }
 
-function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps) {
+function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash }: CanvasBoardProps) {
     const { t } = useI18n();
-    const initial = React.useMemo(() => loadSnapshot(), []);
+    const initial = React.useMemo(() => loadSnapshot(canvasId), [canvasId]);
     const [nodes, setNodes, onNodesChange] = useNodesState<TaskNodeType>(initial.nodes);
     // Derived edges are recreated on every change, so their selection has to be tracked here —
     // without it React Flow's own "select an edge and press Backspace" flow cannot work.
@@ -266,14 +266,26 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
         }
 
         const timer = window.setTimeout(() => {
-            try {
-                window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes }));
-            } catch (error) {
-                console.error('Failed to save the canvas:', error);
-            }
+            saveCanvasNodes(canvasId, nodes as StoredCanvasNode[]);
+            onSaved?.();
         }, 400);
         return () => window.clearTimeout(timer);
+    }, [canvasId, nodes, onSaved]);
+
+    // Switching canvases (or closing the tab) must not lose the last keystrokes: the debounce above
+    // is cancelled by unmount, so write the pending state out synchronously here.
+    const latestNodes = React.useRef(nodes);
+    React.useEffect(() => {
+        latestNodes.current = nodes;
     }, [nodes]);
+    React.useEffect(
+        () => () => {
+            if (latestNodes.current.length > 0 || explicitClear.current) {
+                saveCanvasNodes(canvasId, latestNodes.current as StoredCanvasNode[]);
+            }
+        },
+        [canvasId]
+    );
 
     /**
      * A history delete can remove a file the canvas still points at. Verify every referenced source

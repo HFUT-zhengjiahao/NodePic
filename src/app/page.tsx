@@ -2,7 +2,16 @@
 
 import { EditingForm, type EditingFormData } from '@/components/editing-form';
 import { CanvasBoard } from '@/components/canvas/canvas-board';
-import { collectCanvasFilenames, countCanvasReferences, findCanvasReferences, readStoredCanvas } from '@/lib/canvas-refs';
+import { CanvasSidebar } from '@/components/canvas/canvas-sidebar';
+import { collectCanvasFilenames, countCanvasReferences, findCanvasReferences } from '@/lib/canvas-refs';
+import {
+    createCanvasMeta,
+    loadCanvasNodes,
+    loadRegistry,
+    saveCanvasNodes,
+    saveRegistry,
+    type CanvasMeta
+} from '@/lib/canvas-store';
 import { GenerationForm, type GenerationFormData } from '@/components/generation-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
@@ -121,6 +130,98 @@ export default function HomePage() {
     } | null>(null);
     const [isCleaningUp, setIsCleaningUp] = React.useState(false);
     const [canvasMounted, setCanvasMounted] = React.useState(false);
+    const [canvases, setCanvases] = React.useState<CanvasMeta[]>([]);
+    const [activeCanvasId, setActiveCanvasId] = React.useState<string>('');
+    const [canvasRevision, setCanvasRevision] = React.useState(0);
+    const [isCanvasListCollapsed, setIsCanvasListCollapsed] = React.useState(false);
+
+    const notify = React.useCallback((text: string, tone: 'info' | 'success' | 'error' = 'info') => {
+        setToast({ text, tone });
+    }, []);
+
+    React.useEffect(() => {
+        if (!toast) return;
+        const timer = window.setTimeout(() => setToast(null), 4500);
+        return () => window.clearTimeout(timer);
+    }, [toast]);
+
+    // The registry lives in localStorage, so it is read after mount (never during SSR).
+    React.useEffect(() => {
+        queueMicrotask(() => {
+            const registry = loadRegistry();
+            setCanvases(registry.canvases);
+            setActiveCanvasId(registry.activeId);
+        });
+    }, []);
+
+    const persistRegistry = React.useCallback((next: CanvasMeta[], activeId: string) => {
+        setCanvases(next);
+        setActiveCanvasId(activeId);
+        saveRegistry({ version: 1, activeId, canvases: next });
+    }, []);
+
+    const handleSelectCanvas = React.useCallback(
+        (id: string) => {
+            if (id === activeCanvasId) return;
+            persistRegistry(canvases, id);
+        },
+        [activeCanvasId, canvases, persistRegistry]
+    );
+
+    const handleCreateCanvas = React.useCallback(() => {
+        const meta = createCanvasMeta(t('Canvas {index}', { index: canvases.length + 1 }));
+        persistRegistry([...canvases, meta], meta.id);
+        notify(t('Created “{name}”.', { name: meta.name }), 'success');
+    }, [canvases, notify, persistRegistry, t]);
+
+    const handleRenameCanvas = React.useCallback(
+        (id: string, name: string) => {
+            persistRegistry(
+                canvases.map((canvas) => (canvas.id === id ? { ...canvas, name, updatedAt: Date.now() } : canvas)),
+                activeCanvasId
+            );
+        },
+        [activeCanvasId, canvases, persistRegistry]
+    );
+
+    const handleDuplicateCanvas = React.useCallback(
+        (id: string) => {
+            const source = canvases.find((canvas) => canvas.id === id);
+            if (!source) return;
+            const meta = createCanvasMeta(`${source.name} ${t('copy')}`);
+            saveCanvasNodes(meta.id, loadCanvasNodes(id));
+            persistRegistry([...canvases, meta], meta.id);
+            notify(t('Duplicated “{name}”.', { name: source.name }), 'success');
+        },
+        [canvases, notify, persistRegistry, t]
+    );
+
+    const handleDeleteCanvas = React.useCallback(
+        (id: string) => {
+            if (canvases.length <= 1) return;
+            const target = canvases.find((canvas) => canvas.id === id);
+            if (!target) return;
+            if (!window.confirm(t('Delete the canvas “{name}”? Its pictures stay on disk.', { name: target.name }))) {
+                return;
+            }
+            try {
+                window.localStorage.removeItem(`gptImageCanvas:${id}`);
+            } catch (error) {
+                console.warn('Could not drop the canvas storage:', error);
+            }
+            const remaining = canvases.filter((canvas) => canvas.id !== id);
+            persistRegistry(remaining, id === activeCanvasId ? remaining[0].id : activeCanvasId);
+            notify(t('Deleted “{name}”.', { name: target.name }), 'info');
+        },
+        [activeCanvasId, canvases, notify, persistRegistry, t]
+    );
+
+    const handleCanvasSaved = React.useCallback((canvasId: string) => {
+        setCanvasRevision((prev) => prev + 1);
+        setCanvases((prev) =>
+            prev.map((canvas) => (canvas.id === canvasId ? { ...canvas, updatedAt: Date.now() } : canvas))
+        );
+    }, []);
 
     /** Switching views is a user action: persist the choice and keep the canvas mounted once opened. */
     const selectViewMode = React.useCallback((next: 'canvas' | 'list') => {
@@ -152,16 +253,6 @@ export default function HomePage() {
             }
         });
     }, []);
-
-    const notify = React.useCallback((text: string, tone: 'info' | 'success' | 'error' = 'info') => {
-        setToast({ text, tone });
-    }, []);
-
-    React.useEffect(() => {
-        if (!toast) return;
-        const timer = window.setTimeout(() => setToast(null), 4500);
-        return () => window.clearTimeout(timer);
-    }, [toast]);
 
     /** Lets canvas nodes contribute to the same history the list view shows. */
     const handleCanvasTaskComplete = React.useCallback((entry: HistoryMetadata) => {
@@ -745,7 +836,7 @@ export default function HomePage() {
 
     /** Files the browser can still vouch for: canvas nodes plus every history entry. */
     const collectKeepList = React.useCallback((): string[] => {
-        const keep = collectCanvasFilenames(readStoredCanvas());
+        const keep = collectCanvasFilenames();
         history.forEach((entry) => entry.images?.forEach((image) => keep.add(image.filename)));
         return Array.from(keep);
     }, [history]);
@@ -1243,12 +1334,31 @@ export default function HomePage() {
             )}
 
             {canvasMounted && (
-                <div className={viewMode === 'canvas' ? 'w-full max-w-screen-2xl' : 'hidden'}>
-                    <CanvasBoard
-                        onTaskComplete={handleCanvasTaskComplete}
-                        onNotify={notify}
-                        passwordHash={clientPasswordHash}
+                <div className={viewMode === 'canvas' ? 'flex w-full max-w-screen-2xl gap-4' : 'hidden'}>
+                    <CanvasSidebar
+                        canvases={canvases}
+                        activeId={activeCanvasId}
+                        revision={canvasRevision}
+                        collapsed={isCanvasListCollapsed}
+                        onToggleCollapsed={() => setIsCanvasListCollapsed((prev) => !prev)}
+                        onSelect={handleSelectCanvas}
+                        onCreate={handleCreateCanvas}
+                        onRename={handleRenameCanvas}
+                        onDuplicate={handleDuplicateCanvas}
+                        onDelete={handleDeleteCanvas}
                     />
+                    <div className='min-w-0 flex-1'>
+                        {activeCanvasId ? (
+                            <CanvasBoard
+                                key={activeCanvasId}
+                                canvasId={activeCanvasId}
+                                onSaved={() => handleCanvasSaved(activeCanvasId)}
+                                onTaskComplete={handleCanvasTaskComplete}
+                                onNotify={notify}
+                                passwordHash={clientPasswordHash}
+                            />
+                        ) : null}
+                    </div>
                 </div>
             )}
         </main>
