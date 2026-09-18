@@ -383,7 +383,7 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
 
     return (
         <div
-            className='relative h-[78vh] min-h-[640px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
+            className='relative h-[calc(100vh-88px)] min-h-[520px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
             onDoubleClick={handleDoubleClick}>
             <div className='pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2'>
                 <Button

@@ -829,8 +829,8 @@ export default function HomePage() {
     }, []);
 
     return (
-        <main className='flex min-h-screen flex-col items-center bg-slate-50 p-4 text-slate-900 md:p-8 lg:p-12'>
-            <div className='mb-4 flex w-full max-w-screen-2xl items-start justify-between gap-3'>
+        <main className='flex min-h-screen flex-col items-center bg-slate-50 px-4 py-4 text-slate-900 md:px-8 lg:px-10'>
+            <div className='mb-3 flex w-full max-w-screen-2xl items-start justify-between gap-3'>
                 <div className='flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm'>
                     <button
                         type='button'
@@ -875,7 +875,7 @@ export default function HomePage() {
                         : t('Set a password to use for API requests.')
                 }
             />
-            <div className={viewMode === 'list' ? 'w-full max-w-screen-2xl space-y-6' : 'hidden'}>
+            <div className={viewMode === 'list' ? 'w-full max-w-screen-2xl space-y-5 pt-1' : 'hidden'}>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
                     <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
                         <div className={mode === 'generate' ? 'block h-full w-full' : 'hidden'}>
