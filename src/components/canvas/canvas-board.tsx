@@ -5,7 +5,12 @@ import { MaskEditor } from '@/components/mask-editor';
 import { TaskNode, TaskNodeActionsProvider, type TaskNodeActions, type TaskNodeType } from '@/components/canvas/task-node';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { createTaskData, type CanvasTaskData, type CanvasTaskParams } from '@/lib/canvas-types';
+import {
+    createTaskData,
+    MAX_EDIT_SOURCES,
+    type CanvasTaskData,
+    type CanvasTaskParams
+} from '@/lib/canvas-types';
 import { db, type MaskRecord } from '@/lib/db';
 import { MAX_EDIT_IMAGES } from '@/lib/models';
 import { runCanvasTask } from '@/lib/canvas-run';
@@ -20,12 +25,12 @@ import {
     MiniMap,
     ReactFlow,
     ReactFlowProvider,
-    useEdgesState,
     useNodesState,
     useReactFlow,
     MarkerType,
     type Connection,
     type Edge,
+    type EdgeChange,
     type Node
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -43,8 +48,48 @@ const NODE_GAP_Y = 120;
 
 type CanvasSnapshot = {
     nodes: TaskNodeType[];
-    edges: Edge[];
 };
+
+/** Payload every derived edge carries, so a deletion maps back to a source picture. */
+type LineageEdgeData = {
+    filename: string;
+    targetId: string;
+};
+
+/**
+ * Edges are NOT state: they are derived from `sourceFilenames`, the single source of truth.
+ *
+ * Keeping both in sync by hand is what produced "the line is gone but the node still uploads that
+ * picture" and "the line is there but it points at an old file" — deriving makes the drawn lineage
+ * equal the pictures a run will actually use, by construction.
+ */
+function buildEdges(nodes: TaskNodeType[]): Edge[] {
+    const producedBy = new Map<string, string>();
+    for (const node of nodes) {
+        for (const image of node.data.images) {
+            if (!producedBy.has(image.filename)) producedBy.set(image.filename, node.id);
+        }
+    }
+
+    const edges: Edge[] = [];
+    for (const node of nodes) {
+        for (const filename of node.data.sourceFilenames) {
+            const parentId = producedBy.get(filename);
+            if (!parentId || parentId === node.id) continue;
+            edges.push({
+                id: `e:${parentId}->${node.id}#${filename}`,
+                source: parentId,
+                target: node.id,
+                type: 'default',
+                animated: true,
+                style: EDGE_STYLE,
+                markerEnd: EDGE_MARKER,
+                data: { filename, targetId: node.id } satisfies LineageEdgeData
+            });
+        }
+    }
+    return edges;
+}
 
 type CanvasBoardProps = {
     onTaskComplete?: (entry: HistoryMetadata) => void;
@@ -58,10 +103,10 @@ const MAX_CONCURRENT_RUNS = 2;
 const MAX_UNDO_STEPS = 25;
 
 function loadSnapshot(): CanvasSnapshot {
-    if (typeof window === 'undefined') return { nodes: [], edges: [] };
+    if (typeof window === 'undefined') return { nodes: [] };
     try {
         const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (!raw) return { nodes: [], edges: [] };
+        if (!raw) return { nodes: [] };
         const parsed = JSON.parse(raw) as CanvasSnapshot;
         const nodes = Array.isArray(parsed.nodes)
             ? parsed.nodes.map((node) => ({
@@ -75,17 +120,12 @@ function loadSnapshot(): CanvasSnapshot {
                   }
               }))
             : [];
-        const edges = (Array.isArray(parsed.edges) ? parsed.edges : []).map((edge) => ({
-            ...edge,
-            type: 'default',
-            animated: true,
-            style: { ...EDGE_STYLE, ...(edge.style ?? {}) },
-            markerEnd: edge.markerEnd ?? EDGE_MARKER
-        }));
-        return { nodes, edges };
+        // Edges from older snapshots are deliberately dropped: buildEdges() recomputes them from the
+        // source lists, which is what keeps the picture and the line in agreement.
+        return { nodes };
     } catch (error) {
         console.error('Failed to read the saved canvas:', error);
-        return { nodes: [], edges: [] };
+        return { nodes: [] };
     }
 }
 
@@ -93,7 +133,14 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
     const { t } = useI18n();
     const initial = React.useMemo(() => loadSnapshot(), []);
     const [nodes, setNodes, onNodesChange] = useNodesState<TaskNodeType>(initial.nodes);
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
+    // Derived edges are recreated on every change, so their selection has to be tracked here —
+    // without it React Flow's own "select an edge and press Backspace" flow cannot work.
+    const [selectedEdgeIds, setSelectedEdgeIds] = React.useState<string[]>([]);
+    const edges = React.useMemo(() => {
+        const derived = buildEdges(nodes);
+        if (selectedEdgeIds.length === 0) return derived;
+        return derived.map((edge) => (selectedEdgeIds.includes(edge.id) ? { ...edge, selected: true } : edge));
+    }, [nodes, selectedEdgeIds]);
     const [maskTarget, setMaskTarget] = React.useState<{ nodeId: string; filename: string; path: string } | null>(null);
     const [expanded, setExpanded] = React.useState<{ path: string; filename: string } | null>(null);
     const { screenToFlowPosition, fitView } = useReactFlow();
@@ -108,9 +155,9 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
     }, [edges]);
 
     // --- undo: a snapshot of the graph is taken before every destructive edit -------------------
-    const undoStack = React.useRef<Array<{ nodes: TaskNodeType[]; edges: Edge[] }>>([]);
+    const undoStack = React.useRef<CanvasSnapshot[]>([]);
     const snapshot = React.useCallback(() => {
-        undoStack.current.push({ nodes: nodesRef.current, edges: edgesRef.current });
+        undoStack.current.push({ nodes: nodesRef.current });
         if (undoStack.current.length > MAX_UNDO_STEPS) undoStack.current.shift();
     }, []);
     const undo = React.useCallback(() => {
@@ -120,9 +167,8 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
             return;
         }
         setNodes(previous.nodes);
-        setEdges(previous.edges);
         onNotify?.(t('Undone.'), 'info');
-    }, [onNotify, setEdges, setNodes, t]);
+    }, [onNotify, setNodes, t]);
 
     React.useEffect(() => {
         const handler = (event: KeyboardEvent) => {
@@ -210,13 +256,13 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
         }
         const timer = window.setTimeout(() => {
             try {
-                window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges }));
+                window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes }));
             } catch (error) {
                 console.error('Failed to save the canvas:', error);
             }
         }, 400);
         return () => window.clearTimeout(timer);
-    }, [nodes, edges]);
+    }, [nodes]);
 
     /**
      * A history delete can remove a file the canvas still points at. Verify every referenced source
@@ -323,8 +369,34 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                 });
                 const durationMs = Date.now() - startedAt;
                 const costDetails = calculateApiCost(usage, node.data.params.model);
+                const previousFilenames = node.data.images.map((image) => image.filename);
 
-                patchNode(id, { status: 'idle', images, usage, costDetails, durationMs, error: null });
+                patchNode(id, { status: 'idle', images, viewIndex: 0, usage, costDetails, durationMs, error: null });
+
+                // Downstream nodes referenced the old files by name; point them at the new ones so the
+                // drawn lineage and the pictures a run uploads stay the same thing.
+                const remap = new Map<string, string>();
+                previousFilenames.forEach((filename, index) => {
+                    const replacement = images[index]?.filename ?? images[0]?.filename;
+                    if (replacement && replacement !== filename) remap.set(filename, replacement);
+                });
+                if (remap.size > 0) {
+                    let touched = 0;
+                    setNodes((prev) =>
+                        prev.map((other) => {
+                            if (other.id === id) return other;
+                            const updated = other.data.sourceFilenames.map((filename) => remap.get(filename) ?? filename);
+                            if (updated.every((filename, index) => filename === other.data.sourceFilenames[index])) {
+                                return other;
+                            }
+                            touched += 1;
+                            return { ...other, data: { ...other.data, sourceFilenames: updated, sourceMissing: false } };
+                        })
+                    );
+                    if (touched > 0) {
+                        onNotify?.(t('Downstream nodes now use the picture from this run.'), 'info');
+                    }
+                }
                 onTaskComplete?.({
                     timestamp: Date.now(),
                     images: images.map((image) => ({ filename: image.filename })),
@@ -352,7 +424,7 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                 }
             }
         },
-        [masks, onTaskComplete, passwordHash, patchNode, t]
+        [masks, onNotify, onTaskComplete, passwordHash, patchNode, setNodes, t]
     );
 
     React.useEffect(() => {
@@ -398,7 +470,8 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
     const deriveEditNode = React.useCallback(
         (id: string) => {
             const parent = nodesRef.current.find((node) => node.id === id);
-            const image = parent?.data.images[0];
+            // The picture the user is looking at, not blindly the first of the batch.
+            const image = parent?.data.images[parent.data.viewIndex ?? 0] ?? parent?.data.images[0];
             if (!parent || !image) return;
 
             const newId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -413,36 +486,70 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                     selected: false
                 } as TaskNodeType
             ]);
-            setEdges((prev) => [
-                ...prev,
-                {
-                    id: `edge-${id}-${newId}`,
-                    source: id,
-                    target: newId,
-                    type: 'default',
-                    animated: true,
-                    style: EDGE_STYLE,
-                    markerEnd: EDGE_MARKER
-                }
-            ]);
+            // The connecting line is derived from the new node's sourceFilenames.
             window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 }), 80);
         },
-        [findFreePosition, fitView, setEdges, setNodes]
+        [findFreePosition, fitView, setNodes]
     );
+
+    /** True when wiring `source` into `target` would close a loop (target is already upstream). */
+    const createsCycle = React.useCallback((source?: string | null, target?: string | null) => {
+        if (!source || !target || source === target) return false;
+        const parentsOf = (nodeId: string): string[] => {
+            const node = nodesRef.current.find((item) => item.id === nodeId);
+            if (!node) return [];
+            return node.data.sourceFilenames
+                .map(
+                    (filename) =>
+                        nodesRef.current.find((item) => item.data.images.some((image) => image.filename === filename))?.id
+                )
+                .filter((id): id is string => Boolean(id));
+        };
+
+        const seen = new Set<string>();
+        const stack: string[] = [source];
+        while (stack.length > 0) {
+            const current = stack.pop() as string;
+            if (current === target) return true;
+            if (seen.has(current)) continue;
+            seen.add(current);
+            stack.push(...parentsOf(current));
+        }
+        return false;
+    }, []);
 
     /** Wires the upstream picture into the downstream node (shared by both connection paths). */
     const wireConnection = React.useCallback(
         (source?: string | null, target?: string | null) => {
             if (!source || !target || source === target) return;
 
+            if (createsCycle(source, target)) {
+                window.alert(t('That connection would create a loop.'));
+                return;
+            }
+
             const parent = nodesRef.current.find((node) => node.id === source);
-            const image = parent?.data.images[0];
+            const image = parent?.data.images[parent.data.viewIndex ?? 0] ?? parent?.data.images[0];
             if (!image) {
                 window.alert(t('The source node has no image yet — run it first.'));
                 return;
             }
 
-            const targetWasGenerate = nodesRef.current.find((node) => node.id === target)?.data.kind === 'generate';
+            const targetNode = nodesRef.current.find((node) => node.id === target);
+            if (
+                targetNode &&
+                !targetNode.data.sourceFilenames.includes(image.filename) &&
+                targetNode.data.sourceFilenames.length >= MAX_EDIT_SOURCES
+            ) {
+                window.alert(
+                    t('This relay accepts {max} source image per edit request. Remove the current source first.', {
+                        max: MAX_EDIT_SOURCES
+                    })
+                );
+                return;
+            }
+
+            const targetWasGenerate = targetNode?.data.kind === 'generate';
 
             // A connected node always edits its upstream picture, so a generate node becomes an edit node.
             setNodes((prev) =>
@@ -450,31 +557,16 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                     if (node.id !== target) return node;
                     const sourceFilenames = node.data.sourceFilenames.includes(image.filename)
                         ? node.data.sourceFilenames
-                        : [...node.data.sourceFilenames, image.filename].slice(0, MAX_EDIT_IMAGES);
+                        : [...node.data.sourceFilenames, image.filename].slice(0, MAX_EDIT_SOURCES);
                     return { ...node, data: { ...node.data, kind: 'edit', sourceFilenames } };
                 })
             );
-            setEdges((prev) =>
-                prev.some((edge) => edge.source === source && edge.target === target)
-                    ? prev
-                    : [
-                          ...prev,
-                          {
-                              id: `edge-${source}-${target}`,
-                              source,
-                              target,
-                              type: 'default',
-                              animated: true,
-                              style: EDGE_STYLE,
-                              markerEnd: EDGE_MARKER
-                          }
-                      ]
-            );
+            // No edge bookkeeping: the line is derived from the source list written above.
             if (targetWasGenerate) {
                 onNotify?.(t('The connected node became an edit node and uses this picture as its source.'), 'info');
             }
         },
-        [onNotify, setEdges, setNodes, t]
+        [createsCycle, onNotify, setNodes, t]
     );
 
     const onConnect = React.useCallback(
@@ -534,9 +626,8 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
             snapshot();
             void db.masks.delete(id).catch((error) => console.error('Failed to drop the node mask:', error));
             setNodes((prev) => prev.filter((node) => node.id !== id));
-            setEdges((prev) => prev.filter((edge) => edge.source !== id && edge.target !== id));
         },
-        [setEdges, setNodes, snapshot, t]
+        [setNodes, snapshot, t]
     );
 
     /** Drops one source picture from an edit node (the "broken source" escape hatch). */
@@ -556,26 +647,21 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                         : node
                 )
             );
-            setEdges((prev) =>
-                prev.filter((edge) => {
-                    if (edge.target !== id) return true;
-                    const parent = nodesRef.current.find((node) => node.id === edge.source);
-                    return parent?.data.images[0]?.filename !== filename;
-                })
-            );
+            // The lineage line disappears with the source, because it is derived from it.
         },
-        [setEdges, setNodes, snapshot]
+        [setNodes, snapshot]
     );
 
     const clearSources = React.useCallback(
         (id: string) => {
             snapshot();
             setNodes((prev) =>
-                prev.map((node) => (node.id === id ? { ...node, data: { ...node.data, sourceFilenames: [] } } : node))
+                prev.map((node) =>
+                    node.id === id ? { ...node, data: { ...node.data, sourceFilenames: [], sourceMissing: false } } : node
+                )
             );
-            setEdges((prev) => prev.filter((edge) => edge.target !== id));
         },
-        [setEdges, setNodes, snapshot]
+        [setNodes, snapshot]
     );
 
     /** Same prompt and settings in a fresh node — handy for variations without retyping. */
@@ -604,13 +690,39 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
         [findFreePosition, setNodes, snapshot]
     );
 
+    /** React Flow's own delete (select an edge + Backspace) removes the source it stands for. */
+    const onEdgesChange = React.useCallback(
+        (changes: EdgeChange[]) => {
+            for (const change of changes) {
+                if (change.type === 'select') {
+                    setSelectedEdgeIds((prev) =>
+                        change.selected
+                            ? prev.includes(change.id)
+                                ? prev
+                                : [...prev, change.id]
+                            : prev.filter((id) => id !== change.id)
+                    );
+                    continue;
+                }
+                if (change.type !== 'remove') continue;
+
+                const edge = edgesRef.current.find((item) => item.id === change.id);
+                const data = edge?.data as LineageEdgeData | undefined;
+                setSelectedEdgeIds((prev) => prev.filter((id) => id !== change.id));
+                if (data?.targetId && data.filename) {
+                    removeSource(data.targetId, data.filename);
+                }
+            }
+        },
+        [removeSource]
+    );
+
     const clearCanvas = React.useCallback(() => {
         if (!window.confirm(t('Clear the whole canvas? You can undo this with Ctrl+Z.'))) return;
         snapshot();
         void db.masks.clear().catch((error) => console.error('Failed to clear masks:', error));
         setNodes([]);
-        setEdges([]);
-    }, [setEdges, setNodes, snapshot, t]);
+    }, [setNodes, snapshot, t]);
 
     const actions = React.useMemo<TaskNodeActions>(
         () => ({
@@ -687,6 +799,7 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                     onEdgesChange={onEdgesChange}
                     onConnect={onConnect}
                     onConnectEnd={onConnectEnd}
+                    isValidConnection={(connection) => !createsCycle(connection.source, connection.target)}
                     connectionMode={ConnectionMode.Loose}
                     connectionRadius={48}
                     connectionLineStyle={{ stroke: '#818cf8', strokeWidth: 2 }}

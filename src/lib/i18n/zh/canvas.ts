@@ -67,5 +67,9 @@ export const canvas: Record<string, string> = {
     'Cleanup failed with status {status}': '清理失败（HTTP {status}）',
     'API deletion failed with status {status}': '删除失败（HTTP {status}）',
     'An unexpected error occurred during deletion.': '删除时出错了，请重试。',
+    'That connection would create a loop.': '这条连线会造成环路，已阻止。',
+    'This relay accepts {max} source image per edit request. Remove the current source first.':
+        '当前中转一次只接受 {max} 张源图，请先移除已有的源图。',
+    'Downstream nodes now use the picture from this run.': '下游节点的源图已自动同步为本次生成的新图。',
     'An unexpected error occurred.': '出错了，请重试。'
 };

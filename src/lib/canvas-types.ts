@@ -37,6 +37,8 @@ export type CanvasTaskData = {
     /** Set when every image this node produced is gone from disk. */
     resultMissing?: boolean;
     images: CanvasTaskImage[];
+    /** Which of `images` the node is showing — also what "derive" and "connect" act on. */
+    viewIndex?: number;
     status: CanvasTaskStatus;
     error: string | null;
     durationMs: number | null;
@@ -44,6 +46,15 @@ export type CanvasTaskData = {
     costDetails: CostDetails | null;
     createdAt: number;
 };
+
+/**
+ * How many source pictures one edit request may carry.
+ *
+ * The list view still allows MAX_EDIT_IMAGES, but this deployment goes through PackyAPI, whose
+ * editing endpoint expects a single source image — queueing two upstream nodes onto one edit node
+ * would build a request the relay rejects.
+ */
+export const MAX_EDIT_SOURCES = 1;
 
 export const DEFAULT_TASK_PARAMS: CanvasTaskParams = {
     model: 'gpt-image-2.5-flare',

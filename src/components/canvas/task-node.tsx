@@ -78,8 +78,8 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
 
     const isRunning = data.status === 'running';
     const isQueued = data.status === 'queued';
-    const [imageIndex, setImageIndex] = React.useState(0);
-    const visibleImage = data.images[Math.min(imageIndex, Math.max(0, data.images.length - 1))];
+    const imageIndex = Math.min(data.viewIndex ?? 0, Math.max(0, data.images.length - 1));
+    const visibleImage = data.images[imageIndex];
     const firstImage = data.images[0];
     const hasImage = !!visibleImage && !data.resultMissing;
     const isEdit = data.kind === 'edit';
@@ -225,14 +225,18 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                                 <button
                                     type='button'
                                     className='rounded px-1 hover:bg-white/20'
-                                    onClick={() => setImageIndex((prev) => (prev - 1 + data.images.length) % data.images.length)}>
+                                    onClick={() =>
+                                        actions.onPatch(id, {
+                                            viewIndex: (imageIndex - 1 + data.images.length) % data.images.length
+                                        })
+                                    }>
                                     ‹
                                 </button>
-                                <span>{Math.min(imageIndex, data.images.length - 1) + 1}/{data.images.length}</span>
+                                <span>{imageIndex + 1}/{data.images.length}</span>
                                 <button
                                     type='button'
                                     className='rounded px-1 hover:bg-white/20'
-                                    onClick={() => setImageIndex((prev) => (prev + 1) % data.images.length)}>
+                                    onClick={() => actions.onPatch(id, { viewIndex: (imageIndex + 1) % data.images.length })}>
                                     ›
                                 </button>
                             </div>
