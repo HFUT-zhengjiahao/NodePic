@@ -1,11 +1,12 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import { withIndexLock } from '@/lib/image-index';
-import { purgeOldTrash, trashImage, TRASH_RETENTION_DAYS } from '@/lib/image-trash';
+import { purgeOldTrash, trashImage } from '@/lib/image-trash';
+import { getOutputDir, readServerSettings } from '@/lib/server-settings';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
-const outputDir = path.resolve(process.cwd(), 'generated-images');
+
 
 /** Files younger than this are never deleted: they may belong to a request that is still running. */
 const MIN_AGE_MS = Number(process.env.IMAGE_CLEANUP_MIN_AGE_MINUTES ?? 10) * 60 * 1000;
@@ -65,6 +66,8 @@ export async function POST(request: NextRequest) {
 
     const dryRun = body.dryRun === true;
     const now = Date.now();
+    const outputDir = await getOutputDir();
+    const { trashRetentionDays } = await readServerSettings();
 
     let entries: string[];
     try {
@@ -146,7 +149,7 @@ export async function POST(request: NextRequest) {
             freedBytes: outcome.freedBytes,
             kept: keep.size,
             minAgeMinutes: MIN_AGE_MS / 60000,
-            trashRetentionDays: TRASH_RETENTION_DAYS
+            trashRetentionDays
         });
     } catch (error) {
         console.error('Image cleanup failed:', error);

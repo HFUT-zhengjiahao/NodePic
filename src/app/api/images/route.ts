@@ -38,7 +38,11 @@ const openai = new OpenAI({
     baseURL: process.env.OPENAI_API_BASE_URL
 });
 
-const outputDir = path.resolve(process.cwd(), 'generated-images');
+/** Resolved per request: the folder is configurable from the settings page. */
+async function currentOutputDir(): Promise<string> {
+    const { getOutputDir } = await import('@/lib/server-settings');
+    return getOutputDir();
+}
 
 // Validate and normalize output format
 function validateOutputFormat(format: unknown): ImageOutputFormat {
@@ -78,24 +82,13 @@ function readImageParams(formData: FormData) {
 type EditParams = OpenAI.Images.ImageEditParams & { moderation?: ImageModeration };
 type EditParamsStreaming = OpenAI.Images.ImageEditParamsStreaming & { moderation?: ImageModeration };
 
-async function ensureOutputDirExists() {
+async function ensureOutputDirExists(): Promise<string> {
+    const { ensureOutputDir } = await import('@/lib/server-settings');
     try {
-        await fs.access(outputDir);
-    } catch (error: unknown) {
-        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
-            try {
-                await fs.mkdir(outputDir, { recursive: true });
-                console.log(`Created output directory: ${outputDir}`);
-            } catch (mkdirError) {
-                console.error(`Error creating output directory ${outputDir}:`, mkdirError);
-                throw new Error('Failed to create image output directory.');
-            }
-        } else {
-            console.error(`Error accessing output directory ${outputDir}:`, error);
-            throw new Error(
-                `Failed to access or ensure image output directory exists. Original error: ${error instanceof Error ? error.message : String(error)}`
-            );
-        }
+        return await ensureOutputDir();
+    } catch (error) {
+        console.error('Could not prepare the image output directory:', error);
+        throw new Error('Failed to create image output directory.');
     }
 }
 
@@ -161,8 +154,10 @@ async function handleImageRequest(request: NextRequest) {
             `Effective Image Storage Mode: ${effectiveStorageMode} (Explicit: ${explicitMode || 'unset'}, Vercel: ${isOnVercel})`
         );
 
+        // Resolved once per request: the folder is configurable from the settings page.
+        let outputDir = '';
         if (effectiveStorageMode === 'fs') {
-            await ensureOutputDirExists();
+            outputDir = await ensureOutputDirExists();
         }
 
         const formData = await request.formData();

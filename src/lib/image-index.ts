@@ -1,3 +1,4 @@
+import { getOutputDir } from '@/lib/server-settings';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -12,8 +13,11 @@ export type ImageIndex = {
     files: Record<string, ImageIndexEntry>;
 };
 
-const outputDir = path.resolve(process.cwd(), 'generated-images');
-const indexPath = path.join(outputDir, 'index.json');
+/** Absolute folder + index path for the currently configured output directory. */
+async function outputPaths(): Promise<{ dir: string; index: string }> {
+    const dir = await getOutputDir();
+    return { dir, index: path.join(dir, 'index.json') };
+}
 
 /**
  * The server keeps the authoritative list of images it produced.
@@ -34,8 +38,9 @@ function serialize<T>(task: () => Promise<T>): Promise<T> {
 }
 
 async function writeIndex(index: ImageIndex): Promise<void> {
-    await fs.mkdir(outputDir, { recursive: true });
-    await fs.writeFile(indexPath, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
+    const { dir, index: indexFile } = await outputPaths();
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(indexFile, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
 }
 
 /**
@@ -43,8 +48,9 @@ async function writeIndex(index: ImageIndex): Promise<void> {
  * generated before the registry existed are never mistaken for garbage.
  */
 async function readIndexUnlocked(): Promise<ImageIndex> {
+    const { dir, index: indexFile } = await outputPaths();
     try {
-        const raw = await fs.readFile(indexPath, 'utf8');
+        const raw = await fs.readFile(indexFile, 'utf8');
         const parsed = JSON.parse(raw) as ImageIndex;
         if (parsed && typeof parsed === 'object' && parsed.files && typeof parsed.files === 'object') {
             return { version: 1, files: parsed.files };
@@ -59,10 +65,10 @@ async function readIndexUnlocked(): Promise<ImageIndex> {
 
     const files: Record<string, ImageIndexEntry> = {};
     try {
-        for (const name of await fs.readdir(outputDir)) {
+        for (const name of await fs.readdir(dir)) {
             if (name === 'index.json') continue;
             try {
-                const stat = await fs.stat(path.join(outputDir, name));
+                const stat = await fs.stat(path.join(dir, name));
                 if (stat.isFile()) {
                     files[name] = { registeredAt: stat.mtimeMs, bytes: stat.size };
                 }

@@ -1,11 +1,12 @@
 import crypto from 'crypto';
 import { unregisterImages } from '@/lib/image-index';
+import { getOutputDir } from '@/lib/server-settings';
 import { trashImage } from '@/lib/image-trash';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
-const outputDir = path.resolve(process.cwd(), 'generated-images');
+
 
 function sha256(data: string): string {
     return crypto.createHash('sha256').update(data).digest('hex');
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ message: 'No filenames provided to delete.', results: [] }, { status: 200 });
     }
 
+    const outputDir = await getOutputDir();
     const deletionResults: FileDeletionResult[] = [];
 
     for (const filename of filenames) {

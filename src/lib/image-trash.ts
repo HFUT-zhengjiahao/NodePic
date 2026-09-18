@@ -1,11 +1,14 @@
+import { getOutputDir } from '@/lib/server-settings';
 import fs from 'fs/promises';
 import path from 'path';
 
-const outputDir = path.resolve(process.cwd(), 'generated-images');
-const trashDir = path.join(outputDir, '.trash');
-
-/** How long a deleted picture stays recoverable. */
+/** How long a deleted picture stays recoverable (overridable from the settings page). */
 export const TRASH_RETENTION_DAYS = 30;
+
+async function trashPaths(): Promise<{ dir: string; trash: string }> {
+    const dir = await getOutputDir();
+    return { dir, trash: path.join(dir, '.trash') };
+}
 
 /**
  * Moves a generated picture into `generated-images/.trash/<date>/` instead of unlinking it.
@@ -18,11 +21,12 @@ export const TRASH_RETENTION_DAYS = 30;
  * name containing a slash, and the registry scan skips directories.
  */
 export async function trashImage(filename: string): Promise<{ bytes: number; trashedTo: string }> {
-    const source = path.join(outputDir, filename);
+    const { dir, trash } = await trashPaths();
+    const source = path.join(dir, filename);
     const stat = await fs.stat(source);
 
     const day = new Date().toISOString().slice(0, 10);
-    const targetDir = path.join(trashDir, day);
+    const targetDir = path.join(trash, day);
     await fs.mkdir(targetDir, { recursive: true });
 
     const target = path.join(targetDir, filename);
@@ -36,14 +40,15 @@ export async function trashImage(filename: string): Promise<{ bytes: number; tra
         await fs.unlink(source);
     }
 
-    return { bytes: stat.size, trashedTo: path.relative(outputDir, target) };
+    return { bytes: stat.size, trashedTo: path.relative(dir, target) };
 }
 
 /** Drops trash folders older than the retention window. Returns how many files went away for good. */
 export async function purgeOldTrash(): Promise<number> {
+    const { trash } = await trashPaths();
     let days: string[];
     try {
-        days = await fs.readdir(trashDir);
+        days = await fs.readdir(trash);
     } catch {
         return 0; // no trash yet
     }
@@ -52,7 +57,7 @@ export async function purgeOldTrash(): Promise<number> {
     let removed = 0;
 
     for (const day of days) {
-        const folder = path.join(trashDir, day);
+        const folder = path.join(trash, day);
         const timestamp = Date.parse(day);
         if (Number.isNaN(timestamp) || timestamp >= cutoff) continue;
 
@@ -74,4 +79,8 @@ export async function purgeOldTrash(): Promise<number> {
     return removed;
 }
 
-export const TRASH_DIR = trashDir;
+/** Absolute trash folder for the current output directory. */
+export async function getTrashDir(): Promise<string> {
+    const { trash } = await trashPaths();
+    return trash;
+}

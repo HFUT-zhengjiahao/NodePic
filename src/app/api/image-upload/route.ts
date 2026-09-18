@@ -1,10 +1,11 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import { registerImages } from '@/lib/image-index';
+import { ensureOutputDir } from '@/lib/server-settings';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
-const outputDir = path.resolve(process.cwd(), 'generated-images');
+
 
 const MAX_UPLOAD_BYTES = Number(process.env.IMAGE_UPLOAD_MAX_MB ?? 25) * 1024 * 1024;
 const ALLOWED_TYPES: Record<string, string> = {
@@ -48,8 +49,9 @@ export async function POST(request: NextRequest) {
 
     const stored: Array<{ filename: string; path: string; bytes: number; originalName: string }> = [];
 
+    let outputDir: string;
     try {
-        await fs.mkdir(outputDir, { recursive: true });
+        outputDir = await ensureOutputDir();
     } catch (error) {
         console.error('Could not create the image directory:', error);
         return NextResponse.json({ error: 'Storage is unavailable.' }, { status: 500 });

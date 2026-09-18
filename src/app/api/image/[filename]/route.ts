@@ -3,8 +3,7 @@ import { lookup } from 'mime-types';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
-// Base directory where images are stored (outside nextjs-app)
-const imageBaseDir = path.resolve(process.cwd(), 'generated-images');
+
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ filename: string }> }) {
     const { filename } = await params;
@@ -18,7 +17,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         return NextResponse.json({ error: 'Invalid filename' }, { status: 400 });
     }
 
-    const filepath = path.join(imageBaseDir, filename);
+    // The folder is configurable, so it is resolved per request.
+    const { getOutputDir } = await import('@/lib/server-settings');
+    const filepath = path.join(await getOutputDir(), filename);
 
     try {
         await fs.access(filepath);

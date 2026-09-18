@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
     createTaskData,
+    DEFAULT_TASK_PARAMS,
     MAX_EDIT_SOURCES,
     type CanvasTaskData,
     type CanvasTaskParams
@@ -110,6 +111,11 @@ type CanvasBoardProps = {
     canvasId: string;
     /** Called after every persisted change so the sidebar can refresh its counters. */
     onSaved?: () => void;
+    /** Model/quality to start new nodes with, chosen in the settings panel. */
+    nodeDefaults?: { model: CanvasTaskParams['model']; quality: CanvasTaskParams['quality'] };
+    /** Pictures the history page wants dropped onto this canvas (token changes per request). */
+    incomingImages?: { filenames: string[]; token: number } | null;
+    onIncomingImagesHandled?: () => void;
     onTaskComplete?: (entry: HistoryMetadata) => void;
     /** Surfaces short messages in the app-level toast (connection changes, queueing, undo…). */
     onNotify?: (text: string, tone?: 'info' | 'success' | 'error') => void;
@@ -142,7 +148,16 @@ function loadSnapshot(canvasId: string): CanvasSnapshot {
     }
 }
 
-function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash }: CanvasBoardProps) {
+function CanvasFlow({
+    canvasId,
+    nodeDefaults,
+    onSaved,
+    incomingImages,
+    onIncomingImagesHandled,
+    onTaskComplete,
+    onNotify,
+    passwordHash
+}: CanvasBoardProps) {
     const { t } = useI18n();
     const initial = React.useMemo(() => loadSnapshot(canvasId), [canvasId]);
     const [nodes, setNodes, onNodesChange] = useNodesState<TaskNodeType>(initial.nodes);
@@ -508,6 +523,31 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
         return () => window.removeEventListener('paste', handlePaste);
     }, [addImageNodes, screenToFlowPosition]);
 
+    /** Pictures sent over from the history page become nodes here (they already live on disk). */
+    React.useEffect(() => {
+        if (!incomingImages || incomingImages.filenames.length === 0) return;
+        snapshot();
+        const origin = screenToFlowPosition({ x: window.innerWidth / 2 - 190, y: window.innerHeight / 2 - 180 });
+        setNodes((prev) => [
+            ...prev,
+            ...incomingImages.filenames.map(
+                (filename, index) =>
+                    ({
+                        id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                        type: 'task',
+                        position: { x: origin.x, y: origin.y + index * 140 },
+                        data: createTaskData('image', {
+                            images: [{ filename, path: `/api/image/${filename}` }]
+                        }),
+                        selected: false
+                    }) as TaskNodeType
+            )
+        ]);
+        onNotify?.(t('Added {count} picture node(s).', { count: incomingImages.filenames.length }), 'success');
+        onIncomingImagesHandled?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- driven by the request token only
+    }, [incomingImages?.token]);
+
     /** Dropping files anywhere on the canvas adds them as picture nodes. */
     const handleDrop = React.useCallback(
         (event: React.DragEvent) => {
@@ -635,6 +675,20 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
         return { x, y };
     }, []);
 
+    /** Node data honouring the defaults picked in the settings panel. */
+    const makeTaskData = React.useCallback(
+        (kind: 'generate' | 'edit', overrides: Partial<CanvasTaskData> = {}) =>
+            createTaskData(kind, {
+                params: {
+                    ...DEFAULT_TASK_PARAMS,
+                    model: nodeDefaults?.model ?? DEFAULT_TASK_PARAMS.model,
+                    quality: nodeDefaults?.quality ?? DEFAULT_TASK_PARAMS.quality
+                },
+                ...overrides
+            }),
+        [nodeDefaults?.model, nodeDefaults?.quality]
+    );
+
     const addNode = React.useCallback(
         (kind: 'generate' | 'edit', position?: { x: number; y: number }) => {
             const id = `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -645,18 +699,18 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
                     id,
                     type: 'task',
                     position: spot,
-                    data: createTaskData(kind),
+                    data: makeTaskData(kind),
                     selected: false
                 } as TaskNodeType
             ]);
             // Only re-frame the viewport when the node was created from the toolbar; a double-click
             // placement should stay exactly where the user pointed.
             if (!position) {
-                window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 }), 80);
+                window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.25 }), 80);
             }
             return id;
         },
-        [fitView, screenToFlowPosition, setNodes]
+        [fitView, makeTaskData, screenToFlowPosition, setNodes]
     );
 
     const deriveEditNode = React.useCallback(
@@ -674,14 +728,14 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
                     id: newId,
                     type: 'task',
                     position,
-                    data: createTaskData('edit', { sourceFilenames: [image.filename] }),
+                    data: makeTaskData('edit', { sourceFilenames: [image.filename] }),
                     selected: false
                 } as TaskNodeType
             ]);
             // The connecting line is derived from the new node's sourceFilenames.
             window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 }), 80);
         },
-        [findFreePosition, fitView, setNodes]
+        [findFreePosition, fitView, makeTaskData, setNodes]
     );
 
     /** True when wiring `source` into `target` would close a loop (target is already upstream). */
