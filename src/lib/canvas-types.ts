@@ -21,7 +21,7 @@ export type CanvasTaskParams = {
     moderation: ImageModeration;
 };
 
-export type CanvasTaskStatus = 'idle' | 'running' | 'error';
+export type CanvasTaskStatus = 'idle' | 'queued' | 'running' | 'error';
 
 /** Everything a canvas node knows. Kept JSON-serialisable so it can be persisted. */
 export type CanvasTaskData = {

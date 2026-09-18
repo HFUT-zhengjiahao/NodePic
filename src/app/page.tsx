@@ -8,6 +8,15 @@ import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { LanguageToggle } from '@/components/language-toggle';
 import { PasswordDialog } from '@/components/password-dialog';
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from '@/components/ui/dialog';
 import { ShutdownButton } from '@/components/shutdown-button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { calculateApiCost, type ApiUsage, type CostDetails } from '@/lib/cost-utils';
@@ -103,6 +112,14 @@ export default function HomePage() {
     // Canvas is the primary workspace; the classic form lives behind the "List" switch.
     const [viewMode, setViewMode] = React.useState<'canvas' | 'list'>('canvas');
     const [deleteReferenceWarning, setDeleteReferenceWarning] = React.useState<string | null>(null);
+    const [toast, setToast] = React.useState<{ text: string; tone: 'info' | 'success' | 'error' } | null>(null);
+    const [cleanupPreview, setCleanupPreview] = React.useState<{
+        files: string[];
+        bytes: number;
+        skippedRecent: number;
+        untracked: number;
+    } | null>(null);
+    const [isCleaningUp, setIsCleaningUp] = React.useState(false);
     const [canvasMounted, setCanvasMounted] = React.useState(false);
 
     /** Switching views is a user action: persist the choice and keep the canvas mounted once opened. */
@@ -135,6 +152,16 @@ export default function HomePage() {
             }
         });
     }, []);
+
+    const notify = React.useCallback((text: string, tone: 'info' | 'success' | 'error' = 'info') => {
+        setToast({ text, tone });
+    }, []);
+
+    React.useEffect(() => {
+        if (!toast) return;
+        const timer = window.setTimeout(() => setToast(null), 4500);
+        return () => window.clearTimeout(timer);
+    }, [toast]);
 
     /** Lets canvas nodes contribute to the same history the list view shows. */
     const handleCanvasTaskComplete = React.useCallback((entry: HistoryMetadata) => {
@@ -323,7 +350,7 @@ export default function HomePage() {
             }
 
             if (editImageFiles.length >= MAX_EDIT_IMAGES) {
-                alert(t('Cannot paste: Maximum of {count} images reached.', { count: MAX_EDIT_IMAGES }));
+                notify(t('Cannot paste: Maximum of {count} images reached.', { count: MAX_EDIT_IMAGES }), 'info');
                 return;
             }
 
@@ -350,7 +377,7 @@ export default function HomePage() {
         return () => {
             window.removeEventListener('paste', handlePaste);
         };
-    }, [mode, editImageFiles.length, t]);
+    }, [mode, editImageFiles.length, notify, t]);
 
     async function sha256Client(text: string): Promise<string> {
         const encoder = new TextEncoder();
@@ -690,7 +717,7 @@ export default function HomePage() {
                       'Are you sure you want to clear the entire image history? In IndexedDB mode, this will also permanently delete all stored images. This cannot be undone.'
                   )
                 : t(
-                      'Are you sure you want to clear the entire image history? Image files that no canvas node uses will be deleted from disk too. This cannot be undone.'
+                      'Are you sure you want to clear the entire image history? This only removes the records — use “Clean up orphaned files on disk” afterwards to reclaim space. This cannot be undone.'
                   );
 
         if (window.confirm(confirmationMessage)) {
@@ -706,85 +733,97 @@ export default function HomePage() {
                     await db.images.clear();
                     blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                     blobUrlCacheRef.current.clear();
-                } else {
-                    // The history no longer references these files; anything the canvas still uses stays.
-                    const keep = collectCanvasFilenames(readStoredCanvas());
-                    await fetch('/api/images-cleanup', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            keep: Array.from(keep),
-                            ...(isPasswordRequiredByBackend && clientPasswordHash ? { passwordHash: clientPasswordHash } : {})
-                        })
-                    });
                 }
+                // Disk files are deliberately left alone here: deleting them from a confirm dialog is
+                // how you lose pictures. The explicit "clean up orphaned files" action owns that.
             } catch (e) {
                 console.error('Failed during history clearing:', e);
                 setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
             }
         }
-    }, [clientPasswordHash, isPasswordRequiredByBackend, t]);
+    }, [t]);
 
-    /** Deletes generated files that neither the history nor the canvas references any more. */
-    const handleCleanupUnusedImages = React.useCallback(async () => {
-        if (effectiveStorageModeClient !== 'fs') {
-            window.alert(t('Disk cleanup only applies in filesystem storage mode.'));
-            return;
-        }
-
+    /** Files the browser can still vouch for: canvas nodes plus every history entry. */
+    const collectKeepList = React.useCallback((): string[] => {
         const keep = collectCanvasFilenames(readStoredCanvas());
         history.forEach((entry) => entry.images?.forEach((image) => keep.add(image.filename)));
+        return Array.from(keep);
+    }, [history]);
 
-        const payload = {
-            keep: Array.from(keep),
+    const cleanupPayload = React.useCallback(
+        () => ({
+            keep: collectKeepList(),
             ...(isPasswordRequiredByBackend && clientPasswordHash ? { passwordHash: clientPasswordHash } : {})
-        };
+        }),
+        [clientPasswordHash, collectKeepList, isPasswordRequiredByBackend]
+    );
 
+    /** Step 1: ask the server what it would delete, then show it in a dialog. */
+    const handleCleanupUnusedImages = React.useCallback(async () => {
+        if (effectiveStorageModeClient !== 'fs') {
+            notify(t('Disk cleanup is only available in filesystem storage mode.'), 'info');
+            return;
+        }
         try {
-            const preview = await fetch('/api/images-cleanup', {
+            const response = await fetch('/api/images-cleanup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...payload, dryRun: true })
+                body: JSON.stringify({ ...cleanupPayload(), dryRun: true })
             });
-            const previewResult = await preview.json();
-            if (!preview.ok) throw new Error(previewResult.error || `Cleanup failed with status ${preview.status}`);
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || `Cleanup failed with status ${response.status}`);
 
-            if (!previewResult.deleted) {
-                window.alert(t('Nothing to clean up — every stored image is still referenced.'));
+            if (!result.deleted) {
+                notify(
+                    result.skippedRecent?.length
+                        ? t('{count} recent file(s) were kept — try again in a few minutes.', {
+                              count: result.skippedRecent.length
+                          })
+                        : t('Nothing to clean up — every registered image is still referenced.'),
+                    'info'
+                );
                 return;
             }
 
-            const megabytes = (previewResult.freedBytes / 1024 / 1024).toFixed(1);
-            if (
-                !window.confirm(
-                    t(
-                        'Delete {count} image file(s) that nothing references any more? This frees about {size} MB.',
-                        { count: previewResult.deleted, size: megabytes }
-                    )
-                )
-            ) {
-                return;
-            }
+            setCleanupPreview({
+                files: result.deletedFiles ?? [],
+                bytes: result.freedBytes ?? 0,
+                skippedRecent: result.skippedRecent?.length ?? 0,
+                untracked: result.untracked?.length ?? 0
+            });
+        } catch (error) {
+            console.error('Image cleanup preview failed:', error);
+            notify(error instanceof Error ? error.message : t('An unexpected error occurred.'), 'error');
+        }
+    }, [cleanupPayload, notify, t]);
 
-            const applied = await fetch('/api/images-cleanup', {
+    /** Step 2: the user confirmed the list — actually delete. */
+    const confirmCleanupUnusedImages = React.useCallback(async () => {
+        setIsCleaningUp(true);
+        try {
+            const response = await fetch('/api/images-cleanup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(cleanupPayload())
             });
-            const appliedResult = await applied.json();
-            if (!applied.ok) throw new Error(appliedResult.error || `Cleanup failed with status ${applied.status}`);
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || `Cleanup failed with status ${response.status}`);
 
-            window.alert(
-                t('Removed {count} file(s), freeing {size} MB.', {
-                    count: appliedResult.deleted,
-                    size: (appliedResult.freedBytes / 1024 / 1024).toFixed(1)
-                })
+            notify(
+                t('Deleted {count} file(s), freeing {size} MB.', {
+                    count: result.deleted,
+                    size: ((result.freedBytes ?? 0) / 1024 / 1024).toFixed(1)
+                }),
+                'success'
             );
+            setCleanupPreview(null);
         } catch (error) {
             console.error('Image cleanup failed:', error);
-            setError(error instanceof Error ? error.message : t('An unexpected error occurred.'));
+            notify(error instanceof Error ? error.message : t('An unexpected error occurred.'), 'error');
+        } finally {
+            setIsCleaningUp(false);
         }
-    }, [clientPasswordHash, history, isPasswordRequiredByBackend, t]);
+    }, [cleanupPayload, notify, t]);
 
     const handleSendToEdit = async (filename: string) => {
         if (isSendingToEdit) return;
@@ -885,6 +924,8 @@ export default function HomePage() {
                 }
 
                 setHistory((prevHistory) => prevHistory.filter((h) => h.timestamp !== timestamp));
+                setDeleteReferenceWarning(null);
+                setItemToDeleteConfirm(null);
                 setLatestImageBatch((prev) =>
                     prev && prev.some((img) => filenamesToDelete.includes(img.filename)) ? null : prev
                 );
@@ -896,21 +937,6 @@ export default function HomePage() {
             }
         },
         [isPasswordRequiredByBackend, clientPasswordHash]
-    );
-
-    const handleRequestDeleteItem = React.useCallback(
-        (item: HistoryMetadata, referenceWarning: string | null) => {
-            // A file the canvas still points at always gets a confirmation, even with "don't ask again".
-            const mustConfirm = !skipDeleteConfirmation || Boolean(referenceWarning);
-            if (!mustConfirm) {
-                void executeDeleteItem(item);
-                return;
-            }
-            setDialogCheckboxStateSkipConfirm(skipDeleteConfirmation);
-            setDeleteReferenceWarning(referenceWarning);
-            setItemToDeleteConfirm(item);
-        },
-        [skipDeleteConfirmation, executeDeleteItem]
     );
 
     /** Warns when a history entry still feeds canvas nodes, so the user knows what breaks. */
@@ -927,6 +953,22 @@ export default function HomePage() {
         [t]
     );
 
+    const handleRequestDeleteItem = React.useCallback(
+        (item: HistoryMetadata) => {
+            // The warning is computed here rather than trusted from the caller, so a referenced file can
+            // never slip through the confirmation — not even with "don't ask me again" switched on.
+            const referenceWarning = describeCanvasReferences(item);
+            if (skipDeleteConfirmation && !referenceWarning) {
+                void executeDeleteItem(item);
+                return;
+            }
+            setDialogCheckboxStateSkipConfirm(skipDeleteConfirmation);
+            setDeleteReferenceWarning(referenceWarning);
+            setItemToDeleteConfirm(item);
+        },
+        [describeCanvasReferences, skipDeleteConfirmation, executeDeleteItem]
+    );
+
     const handleConfirmDeletion = React.useCallback(() => {
         if (itemToDeleteConfirm) {
             executeDeleteItem(itemToDeleteConfirm);
@@ -936,6 +978,7 @@ export default function HomePage() {
 
     const handleCancelDeletion = React.useCallback(() => {
         setItemToDeleteConfirm(null);
+        setDeleteReferenceWarning(null);
     }, []);
 
     return (
@@ -1110,9 +1153,9 @@ export default function HomePage() {
                         onClearHistory={handleClearHistory}
                         getImageSrc={getImageSrc}
                         onDeleteItemRequest={handleRequestDeleteItem}
-                        describeReferenceWarning={describeCanvasReferences}
                         referenceWarning={deleteReferenceWarning}
                         onCleanupUnusedImages={handleCleanupUnusedImages}
+                        cleanupDisabled={effectiveStorageModeClient !== 'fs'}
                         itemPendingDeleteConfirmation={itemToDeleteConfirm}
                         onConfirmDeletion={handleConfirmDeletion}
                         onCancelDeletion={handleCancelDeletion}
@@ -1122,9 +1165,86 @@ export default function HomePage() {
                 </div>
             </div>
 
+            <Dialog open={!!cleanupPreview} onOpenChange={(open) => !open && setCleanupPreview(null)}>
+                <DialogContent className='border-slate-200 bg-white text-slate-900 sm:max-w-[480px]'>
+                    <DialogHeader>
+                        <DialogTitle className='text-base'>{t('Clean up orphaned files on disk')}</DialogTitle>
+                        <DialogDescription className='pt-1 text-slate-600'>
+                            {t('These files are registered on the server but nothing references them any more.')}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className='space-y-2 text-xs'>
+                        <ul className='max-h-40 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] leading-relaxed text-slate-600'>
+                            {cleanupPreview?.files.slice(0, 5).map((filename) => (
+                                <li key={filename}>{filename}</li>
+                            ))}
+                            {(cleanupPreview?.files.length ?? 0) > 5 && (
+                                <li>
+                                    …{' '}
+                                    {t('and {count} more', { count: (cleanupPreview?.files.length ?? 0) - 5 })}
+                                </li>
+                            )}
+                        </ul>
+                        <p className='text-slate-600'>
+                            {t('Frees about {size} MB.', {
+                                size: ((cleanupPreview?.bytes ?? 0) / 1024 / 1024).toFixed(1)
+                            })}
+                        </p>
+                        {!!cleanupPreview?.skippedRecent && (
+                            <p className='text-amber-600'>
+                                {t('{count} recently generated file(s) are skipped for safety.', {
+                                    count: cleanupPreview.skippedRecent
+                                })}
+                            </p>
+                        )}
+                        {!!cleanupPreview?.untracked && (
+                            <p className='text-slate-500'>
+                                {t('{count} unregistered file(s) are left untouched.', { count: cleanupPreview.untracked })}
+                            </p>
+                        )}
+                    </div>
+                    <DialogFooter className='gap-2 sm:justify-end'>
+                        <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            onClick={() => setCleanupPreview(null)}
+                            className='border-slate-300 text-slate-600 hover:bg-slate-200 hover:text-slate-900'>
+                            {t('Cancel')}
+                        </Button>
+                        <Button
+                            type='button'
+                            size='sm'
+                            disabled={isCleaningUp}
+                            onClick={confirmCleanupUnusedImages}
+                            className='bg-red-600 text-white hover:bg-red-500 disabled:opacity-60'>
+                            {t('Delete {count} file(s)', { count: cleanupPreview?.files.length ?? 0 })}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {toast && (
+                <div
+                    role='status'
+                    className={`fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-lg border px-4 py-2 text-sm shadow-lg ${
+                        toast.tone === 'success'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                            : toast.tone === 'error'
+                              ? 'border-red-200 bg-red-50 text-red-700'
+                              : 'border-slate-200 bg-white text-slate-700'
+                    }`}>
+                    {toast.text}
+                </div>
+            )}
+
             {canvasMounted && (
                 <div className={viewMode === 'canvas' ? 'w-full max-w-screen-2xl' : 'hidden'}>
-                    <CanvasBoard onTaskComplete={handleCanvasTaskComplete} passwordHash={clientPasswordHash} />
+                    <CanvasBoard
+                        onTaskComplete={handleCanvasTaskComplete}
+                        onNotify={notify}
+                        passwordHash={clientPasswordHash}
+                    />
                 </div>
             )}
         </main>

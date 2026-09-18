@@ -8,6 +8,7 @@ import {
     type ImageQuality
 } from '@/lib/models';
 import crypto from 'crypto';
+import { registerImages } from '@/lib/image-index';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
@@ -503,6 +504,16 @@ async function handleImageRequest(request: NextRequest) {
                 return imageResult;
             })
         );
+
+        // Remember what we produced so a later cleanup never has to guess.
+        if (effectiveStorageMode === 'fs') {
+            await registerImages(
+                savedImagesData.map((image) => ({
+                    filename: image.filename,
+                    bytes: Buffer.byteLength(image.b64_json ?? '', 'base64')
+                }))
+            );
+        }
 
         console.log(`All images processed. Mode: ${effectiveStorageMode}`);
 

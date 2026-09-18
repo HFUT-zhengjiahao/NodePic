@@ -38,13 +38,12 @@ type HistoryPanelProps = {
     onSelectImage: (item: HistoryMetadata) => void;
     onClearHistory: () => void;
     getImageSrc: (filename: string) => string | undefined;
-    onDeleteItemRequest: (item: HistoryMetadata, referenceWarning: string | null) => void;
-    /** Returns a warning when the entry still feeds canvas nodes, otherwise null. */
-    describeReferenceWarning: (item: HistoryMetadata) => string | null;
+    onDeleteItemRequest: (item: HistoryMetadata) => void;
     /** Set while the confirmation dialog is open for an entry the canvas still references. */
     referenceWarning: string | null;
-    /** Removes generated files that nothing references any more. */
+    /** Removes generated files that nothing references any more (filesystem storage only). */
     onCleanupUnusedImages: () => void;
+    cleanupDisabled?: boolean;
     itemPendingDeleteConfirmation: HistoryMetadata | null;
     onConfirmDeletion: () => void;
     onCancelDeletion: () => void;
@@ -84,9 +83,9 @@ function HistoryPanelImpl({
     onClearHistory,
     getImageSrc,
     onDeleteItemRequest,
-    describeReferenceWarning,
     referenceWarning,
     onCleanupUnusedImages,
+    cleanupDisabled = false,
     itemPendingDeleteConfirmation,
     onConfirmDeletion,
     onCancelDeletion,
@@ -216,11 +215,16 @@ function HistoryPanelImpl({
                         type='button'
                         variant='ghost'
                         size='sm'
-                        title={t('Delete generated files that no history entry or canvas node uses')}
+                        title={
+                            cleanupDisabled
+                                ? t('Disk cleanup is only available in filesystem storage mode.')
+                                : t('Delete registered image files that no history entry or canvas node uses')
+                        }
+                        disabled={cleanupDisabled}
                         onClick={onCleanupUnusedImages}
-                        className='h-auto rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900'>
+                        className='h-auto rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
                         <Trash2 className='mr-1 h-3.5 w-3.5' />
-                        {t('Clean up files')}
+                        {t('Clean up orphaned files on disk')}
                     </Button>
                 </div>
             </CardHeader>
@@ -507,10 +511,7 @@ function HistoryPanelImpl({
                                                         className='h-6 w-6 border border-slate-200 bg-white text-slate-400 hover:border-red-200 hover:bg-red-50 hover:text-red-600'
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            onDeleteItemRequest(
-                                                                item,
-                                                                describeReferenceWarning(item)
-                                                            );
+                                                            onDeleteItemRequest(item);
                                                         }}
                                                         aria-label={t('Delete history item')}>
                                                         <Trash2 size={14} />

@@ -9,6 +9,8 @@ import { getPresetDimensions, type SizePreset } from '@/lib/size-utils';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import {
     Brush,
+    Clock,
+    CopyPlus,
     Download,
     ImageOff,
     Loader2,
@@ -28,6 +30,9 @@ export type TaskNodeActions = {
     onPatchParams: (id: string, patch: Partial<CanvasTaskParams>) => void;
     onRun: (id: string) => void;
     onDeriveEdit: (id: string) => void;
+    onClone: (id: string) => void;
+    onRemoveSource: (id: string, filename: string) => void;
+    onClearSources: (id: string) => void;
     onOpenMask: (id: string, image: { filename: string; path: string }) => void;
     onDelete: (id: string) => void;
     onExpand: (image: { filename: string; path: string }) => void;
@@ -72,8 +77,11 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
     const [showParams, setShowParams] = React.useState(false);
 
     const isRunning = data.status === 'running';
+    const isQueued = data.status === 'queued';
+    const [imageIndex, setImageIndex] = React.useState(0);
+    const visibleImage = data.images[Math.min(imageIndex, Math.max(0, data.images.length - 1))];
     const firstImage = data.images[0];
-    const hasImage = !!firstImage && !data.resultMissing;
+    const hasImage = !!visibleImage && !data.resultMissing;
     const isEdit = data.kind === 'edit';
     // A mask describes what the model may repaint, so it belongs to the *source* picture of an edit
     // node — never to that node's own result.
@@ -134,7 +142,9 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                             <span className='text-[11px] text-slate-400'>{t('None yet — click “Use as source” on another node')}</span>
                         )}
                         {data.sourceFilenames.slice(0, 4).map((filename) => (
-                            <span key={filename} className='block h-8 w-8 overflow-hidden rounded border border-slate-200 bg-white'>
+                            <span
+                                key={filename}
+                                className='group/src relative block h-8 w-8 overflow-hidden rounded border border-slate-200 bg-white'>
                                 <Image
                                     src={`/api/image/${filename}`}
                                     alt={filename}
@@ -143,10 +153,26 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                                     className='h-full w-full object-cover'
                                     unoptimized
                                 />
+                                <button
+                                    type='button'
+                                    title={t('Remove this source image')}
+                                    onClick={() => actions.onRemoveSource(id, filename)}
+                                    className='nodrag absolute top-0 right-0 hidden h-3.5 w-3.5 items-center justify-center rounded-bl bg-red-500 text-[9px] leading-none text-white group-hover/src:flex'>
+                                    ×
+                                </button>
                             </span>
                         ))}
                         {data.sourceFilenames.length > 4 && (
                             <span className='text-[11px] text-slate-500'>+{data.sourceFilenames.length - 4}</span>
+                        )}
+                        {data.sourceFilenames.length > 0 && (
+                            <button
+                                type='button'
+                                onClick={() => actions.onClearSources(id)}
+                                title={t('Remove every source image')}
+                                className='nodrag rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-slate-100 hover:text-slate-700'>
+                                {t('Clear sources')}
+                            </button>
                         )}
                     </div>
                     {data.maskFileName && !data.sourceMissing && (
@@ -155,26 +181,39 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         </span>
                     )}
                     {data.sourceMissing && (
-                        <span
-                            className='ml-auto rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700'
-                            title={t('The file was deleted from the history, so this node cannot run.')}>
-                            {t('Source image missing')}
-                        </span>
+                        <>
+                            <span
+                                className='ml-auto rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700'
+                                title={t('The file was deleted from the history, so this node cannot run.')}>
+                                {t('Source image missing')}
+                            </span>
+                            <button
+                                type='button'
+                                onClick={() => actions.onClearSources(id)}
+                                className='nodrag rounded-full border border-red-200 bg-white px-1.5 py-0.5 text-[10px] text-red-600 hover:bg-red-50'>
+                                {t('Remove broken source')}
+                            </button>
+                        </>
                     )}
                 </div>
             )}
 
             {/* result */}
             <div className='relative h-[210px] w-full bg-slate-50'>
-                {isRunning && !firstImage ? (
+                {isQueued && !firstImage ? (
+                    <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-500'>
+                        <Clock className='h-6 w-6 text-amber-500' />
+                        <span className='text-xs'>{t('Queued — waiting for a free slot…')}</span>
+                    </div>
+                ) : isRunning && !firstImage ? (
                     <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-500'>
                         <Loader2 className='h-6 w-6 animate-spin text-indigo-500' />
                         <span className='text-xs'>{t('Generating…')}</span>
                     </div>
-                ) : hasImage && firstImage ? (
+                ) : hasImage && visibleImage ? (
                     <>
                         <Image
-                            src={firstImage.path}
+                            src={visibleImage.path}
                             alt={data.prompt || t('Generated image output')}
                             fill
                             sizes='380px'
@@ -182,8 +221,20 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                             unoptimized
                         />
                         {data.images.length > 1 && (
-                            <div className='absolute right-2 bottom-2 rounded-full bg-slate-900/75 px-2 py-0.5 text-[11px] text-white'>
-                                {data.images.length} {t('images')}
+                            <div className='nodrag absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-slate-900/75 px-1.5 py-0.5 text-[11px] text-white'>
+                                <button
+                                    type='button'
+                                    className='rounded px-1 hover:bg-white/20'
+                                    onClick={() => setImageIndex((prev) => (prev - 1 + data.images.length) % data.images.length)}>
+                                    ‹
+                                </button>
+                                <span>{Math.min(imageIndex, data.images.length - 1) + 1}/{data.images.length}</span>
+                                <button
+                                    type='button'
+                                    className='rounded px-1 hover:bg-white/20'
+                                    onClick={() => setImageIndex((prev) => (prev + 1) % data.images.length)}>
+                                    ›
+                                </button>
                             </div>
                         )}
                     </>
@@ -219,14 +270,14 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                             type='button'
                             className='nodrag rounded-md border border-slate-200 bg-white/95 p-1.5 text-slate-500 shadow-sm hover:text-slate-900'
                             title={t('Expand')}
-                            onClick={() => firstImage && actions.onExpand(firstImage)}>
+                            onClick={() => visibleImage && actions.onExpand(visibleImage)}>
                             <Maximize2 className='h-3.5 w-3.5' />
                         </button>
                         <a
                             className='nodrag rounded-md border border-slate-200 bg-white/95 p-1.5 text-slate-500 shadow-sm hover:text-slate-900'
                             title={t('Download')}
-                            href={firstImage.path}
-                            download={firstImage.filename}>
+                            href={visibleImage.path}
+                            download={visibleImage.filename}>
                             <Download className='h-3.5 w-3.5' />
                         </a>
                     </div>
@@ -247,11 +298,15 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                     <Button
                         type='button'
                         size='sm'
-                        disabled={isRunning || !data.prompt.trim()}
+                        disabled={isRunning || isQueued || !data.prompt.trim()}
                         onClick={() => actions.onRun(id)}
                         className='nodrag h-8 flex-1 bg-indigo-600 text-[13px] text-white shadow-sm hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
-                        {isRunning ? <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' /> : <Play className='mr-1.5 h-3.5 w-3.5' />}
-                        {isRunning ? t('Generating…') : isEdit ? t('Edit Image') : t('Generate')}
+                        {isRunning || isQueued ? (
+                            <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                        ) : (
+                            <Play className='mr-1.5 h-3.5 w-3.5' />
+                        )}
+                        {isQueued ? t('Queued…') : isRunning ? t('Generating…') : isEdit ? t('Edit Image') : t('Generate')}
                     </Button>
                     <Button
                         type='button'
@@ -263,6 +318,16 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         className='nodrag h-8 border-slate-200 px-2 text-[12px] text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
                         <Shuffle className='mr-1 h-3.5 w-3.5' />
                         {t('Branch edit')}
+                    </Button>
+                    <Button
+                        type='button'
+                        variant='outline'
+                        size='sm'
+                        disabled={isRunning}
+                        title={t('Clone node (same prompt and settings, no result)')}
+                        onClick={() => actions.onClone(id)}
+                        className='nodrag h-8 border-slate-200 px-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
+                        <CopyPlus className='h-3.5 w-3.5' />
                     </Button>
                     <Button
                         type='button'

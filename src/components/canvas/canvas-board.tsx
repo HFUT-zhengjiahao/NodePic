@@ -29,7 +29,7 @@ import {
     type Node
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Brush, ImagePlus, LayoutGrid, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Brush, ImagePlus, LayoutGrid, Plus, Sparkles, Trash2, Undo2 } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -48,8 +48,14 @@ type CanvasSnapshot = {
 
 type CanvasBoardProps = {
     onTaskComplete?: (entry: HistoryMetadata) => void;
+    /** Surfaces short messages in the app-level toast (connection changes, queueing, undo…). */
+    onNotify?: (text: string, tone?: 'info' | 'success' | 'error') => void;
     passwordHash?: string | null;
 };
+
+/** How many nodes may talk to the provider at once; the rest wait in the node's own queue. */
+const MAX_CONCURRENT_RUNS = 2;
+const MAX_UNDO_STEPS = 25;
 
 function loadSnapshot(): CanvasSnapshot {
     if (typeof window === 'undefined') return { nodes: [], edges: [] };
@@ -82,7 +88,7 @@ function loadSnapshot(): CanvasSnapshot {
     }
 }
 
-function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
+function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps) {
     const { t } = useI18n();
     const initial = React.useMemo(() => loadSnapshot(), []);
     const [nodes, setNodes, onNodesChange] = useNodesState<TaskNodeType>(initial.nodes);
@@ -92,9 +98,49 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
     const { screenToFlowPosition, fitView } = useReactFlow();
 
     const nodesRef = React.useRef(nodes);
+    const edgesRef = React.useRef(edges);
     React.useEffect(() => {
         nodesRef.current = nodes;
     }, [nodes]);
+    React.useEffect(() => {
+        edgesRef.current = edges;
+    }, [edges]);
+
+    // --- undo: a snapshot of the graph is taken before every destructive edit -------------------
+    const undoStack = React.useRef<Array<{ nodes: TaskNodeType[]; edges: Edge[] }>>([]);
+    const snapshot = React.useCallback(() => {
+        undoStack.current.push({ nodes: nodesRef.current, edges: edgesRef.current });
+        if (undoStack.current.length > MAX_UNDO_STEPS) undoStack.current.shift();
+    }, []);
+    const undo = React.useCallback(() => {
+        const previous = undoStack.current.pop();
+        if (!previous) {
+            onNotify?.(t('Nothing to undo.'), 'info');
+            return;
+        }
+        setNodes(previous.nodes);
+        setEdges(previous.edges);
+        onNotify?.(t('Undone.'), 'info');
+    }, [onNotify, setEdges, setNodes, t]);
+
+    React.useEffect(() => {
+        const handler = (event: KeyboardEvent) => {
+            if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'z') return;
+            const target = event.target as HTMLElement | null;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+                return; // let the field handle its own undo
+            }
+            event.preventDefault();
+            undo();
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [undo]);
+
+    // --- node-level run queue: the toolbar may fire several nodes at once ----------------------
+    const runningRef = React.useRef<Set<string>>(new Set());
+    const pendingRef = React.useRef<string[]>([]);
+    const runNodeRef = React.useRef<((id: string) => Promise<void>) | null>(null);
     const [showHint, setShowHint] = React.useState(false);
 
     React.useEffect(() => {
@@ -245,6 +291,14 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
             const node = nodesRef.current.find((item) => item.id === id);
             if (!node) return;
             if (!node.data.prompt.trim()) return;
+            if (runningRef.current.has(id)) return;
+
+            if (runningRef.current.size >= MAX_CONCURRENT_RUNS) {
+                pendingRef.current.push(id);
+                patchNode(id, { status: 'queued', error: null });
+                return;
+            }
+
             if (node.data.sourceMissing) {
                 patchNode(id, {
                     status: 'error',
@@ -254,6 +308,7 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
             }
 
             const startedAt = Date.now();
+            runningRef.current.add(id);
             patchNode(id, { status: 'running', error: null });
 
             try {
@@ -288,10 +343,20 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                     status: 'error',
                     error: error instanceof Error ? error.message : t('An unexpected error occurred.')
                 });
+            } finally {
+                runningRef.current.delete(id);
+                const next = pendingRef.current.shift();
+                if (next) {
+                    window.setTimeout(() => void runNodeRef.current?.(next), 0);
+                }
             }
         },
         [masks, onTaskComplete, passwordHash, patchNode, t]
     );
+
+    React.useEffect(() => {
+        runNodeRef.current = runNode;
+    }, [runNode]);
 
     /** Places a new node in free space to the right of its parent. */
     const findFreePosition = React.useCallback((originX: number, originY: number) => {
@@ -376,6 +441,8 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                 return;
             }
 
+            const targetWasGenerate = nodesRef.current.find((node) => node.id === target)?.data.kind === 'generate';
+
             // A connected node always edits its upstream picture, so a generate node becomes an edit node.
             setNodes((prev) =>
                 prev.map((node) => {
@@ -402,8 +469,11 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                           }
                       ]
             );
+            if (targetWasGenerate) {
+                onNotify?.(t('The connected node became an edit node and uses this picture as its source.'), 'info');
+            }
         },
-        [setEdges, setNodes, t]
+        [onNotify, setEdges, setNodes, t]
     );
 
     const onConnect = React.useCallback(
@@ -459,20 +529,87 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
 
     const deleteNode = React.useCallback(
         (id: string) => {
-            if (!window.confirm(t('Delete this node? This cannot be undone.'))) return;
+            if (!window.confirm(t('Delete this node? You can undo this with Ctrl+Z.'))) return;
+            snapshot();
             void db.masks.delete(id).catch((error) => console.error('Failed to drop the node mask:', error));
             setNodes((prev) => prev.filter((node) => node.id !== id));
             setEdges((prev) => prev.filter((edge) => edge.source !== id && edge.target !== id));
         },
-        [setEdges, setNodes, t]
+        [setEdges, setNodes, snapshot, t]
+    );
+
+    /** Drops one source picture from an edit node (the "broken source" escape hatch). */
+    const removeSource = React.useCallback(
+        (id: string, filename: string) => {
+            snapshot();
+            setNodes((prev) =>
+                prev.map((node) =>
+                    node.id === id
+                        ? {
+                              ...node,
+                              data: {
+                                  ...node.data,
+                                  sourceFilenames: node.data.sourceFilenames.filter((item) => item !== filename)
+                              }
+                          }
+                        : node
+                )
+            );
+            setEdges((prev) =>
+                prev.filter((edge) => {
+                    if (edge.target !== id) return true;
+                    const parent = nodesRef.current.find((node) => node.id === edge.source);
+                    return parent?.data.images[0]?.filename !== filename;
+                })
+            );
+        },
+        [setEdges, setNodes, snapshot]
+    );
+
+    const clearSources = React.useCallback(
+        (id: string) => {
+            snapshot();
+            setNodes((prev) =>
+                prev.map((node) => (node.id === id ? { ...node, data: { ...node.data, sourceFilenames: [] } } : node))
+            );
+            setEdges((prev) => prev.filter((edge) => edge.target !== id));
+        },
+        [setEdges, setNodes, snapshot]
+    );
+
+    /** Same prompt and settings in a fresh node — handy for variations without retyping. */
+    const cloneNode = React.useCallback(
+        (id: string) => {
+            const source = nodesRef.current.find((node) => node.id === id);
+            if (!source) return;
+            snapshot();
+            const newId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+            const position = findFreePosition(source.position.x, source.position.y);
+            setNodes((prev) => [
+                ...prev,
+                {
+                    id: newId,
+                    type: 'task',
+                    position,
+                    data: createTaskData(source.data.kind, {
+                        prompt: source.data.prompt,
+                        params: { ...source.data.params },
+                        sourceFilenames: [...source.data.sourceFilenames]
+                    }),
+                    selected: false
+                } as TaskNodeType
+            ]);
+        },
+        [findFreePosition, setNodes, snapshot]
     );
 
     const clearCanvas = React.useCallback(() => {
-        if (!window.confirm(t('Clear the whole canvas? This cannot be undone.'))) return;
+        if (!window.confirm(t('Clear the whole canvas? You can undo this with Ctrl+Z.'))) return;
+        snapshot();
         void db.masks.clear().catch((error) => console.error('Failed to clear masks:', error));
         setNodes([]);
         setEdges([]);
-    }, [setEdges, setNodes, t]);
+    }, [setEdges, setNodes, snapshot, t]);
 
     const actions = React.useMemo<TaskNodeActions>(
         () => ({
@@ -480,11 +617,14 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
             onPatchParams: patchParams,
             onRun: runNode,
             onDeriveEdit: deriveEditNode,
+            onClone: cloneNode,
+            onRemoveSource: removeSource,
+            onClearSources: clearSources,
             onOpenMask: (id, image) => setMaskTarget({ nodeId: id, filename: image.filename, path: image.path }),
             onDelete: deleteNode,
             onExpand: (image) => setExpanded(image)
         }),
-        [deleteNode, deriveEditNode, patchNode, patchParams, runNode]
+        [clearSources, cloneNode, deleteNode, deriveEditNode, patchNode, patchParams, removeSource, runNode]
     );
 
     const nodeTypes = React.useMemo(() => ({ task: TaskNode }), []);
@@ -516,6 +656,15 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                     onClick={() => fitView({ padding: 0.2, duration: 300 })}
                     className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
                     <LayoutGrid className='mr-1.5 h-4 w-4' /> {t('Fit view')}
+                </Button>
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={undo}
+                    title={t('Undo (Ctrl+Z)')}
+                    className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
+                    <Undo2 className='mr-1.5 h-4 w-4' /> {t('Undo')}
                 </Button>
                 {nodes.length > 0 && (
                     <Button

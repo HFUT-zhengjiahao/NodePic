@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { unregisterImages } from '@/lib/image-index';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
@@ -82,6 +83,12 @@ export async function POST(request: NextRequest) {
                 deletionResults.push({ filename, success: false, error: 'Failed to delete file.' });
             }
         }
+    }
+
+    // Keep the server-side registry in step with the disk.
+    const deleted = deletionResults.filter((result) => result.success).map((result) => result.filename);
+    if (deleted.length > 0) {
+        await unregisterImages(deleted).catch((error) => console.error('Failed to update the image index:', error));
     }
 
     const allSucceeded = deletionResults.every((r) => r.success);
