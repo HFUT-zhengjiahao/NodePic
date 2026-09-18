@@ -676,7 +676,7 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
                 targetNode.data.sourceFilenames.length >= MAX_EDIT_SOURCES
             ) {
                 window.alert(
-                    t('This relay accepts {max} source image per edit request. Remove the current source first.', {
+                    t('An edit node can hold at most {max} source images. Remove one first.', {
                         max: MAX_EDIT_SOURCES
                     })
                 );
@@ -1124,6 +1124,9 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
                         <MaskTargetEditor
                             target={maskTarget}
                             hasMask={masks.has(maskTarget.nodeId)}
+                            multiSource={
+                                (nodes.find((node) => node.id === maskTarget.nodeId)?.data.sourceFilenames.length ?? 0) > 1
+                            }
                             onMaskChange={(file) => void saveMask(maskTarget.nodeId, file)}
                         />
                     )}
@@ -1158,10 +1161,12 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
 function MaskTargetEditor({
     target,
     hasMask,
+    multiSource,
     onMaskChange
 }: {
     target: { nodeId: string; filename: string; path: string };
     hasMask: boolean;
+    multiSource: boolean;
     onMaskChange: (file: File | null) => void;
 }) {
     const { t } = useI18n();
@@ -1181,6 +1186,11 @@ function MaskTargetEditor({
         <div className='space-y-2'>
             {hasMask && (
                 <p className='text-[11px] text-amber-600'>{t('A mask is already attached to this node.')}</p>
+            )}
+            {multiSource && (
+                <p className='text-[11px] text-slate-500'>
+                    {t('With several sources the mask is applied to the first picture.')}
+                </p>
             )}
             <MaskEditor
                 imageUrl={target.path}

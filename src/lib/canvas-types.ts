@@ -58,13 +58,21 @@ export type CanvasTaskData = {
 };
 
 /**
- * How many source pictures one edit request may carry.
+ * How many source pictures one canvas edit node may collect.
  *
- * The list view still allows MAX_EDIT_IMAGES, but this deployment goes through PackyAPI, whose
- * editing endpoint expects a single source image — queueing two upstream nodes onto one edit node
- * would build a request the relay rejects.
+ * The model accepts up to 16 source images (OpenAI images.edit documentation), and PackyAPI was
+ * measured forwarding 4 of them without complaint, so 16 is the default. Override it when a
+ * particular endpoint validates more strictly than the model does:
+ *
+ *   NEXT_PUBLIC_MAX_EDIT_SOURCES=1
  */
-export const MAX_EDIT_SOURCES = 1;
+function readMaxEditSources(): number {
+    const raw = Number(process.env.NEXT_PUBLIC_MAX_EDIT_SOURCES);
+    if (!Number.isFinite(raw) || raw < 1) return 16;
+    return Math.min(Math.floor(raw), 16);
+}
+
+export const MAX_EDIT_SOURCES = readMaxEditSources();
 
 export const DEFAULT_TASK_PARAMS: CanvasTaskParams = {
     model: DEFAULT_GPT_IMAGE_MODEL,
