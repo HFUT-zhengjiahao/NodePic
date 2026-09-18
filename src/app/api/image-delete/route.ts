@@ -1,5 +1,5 @@
-import crypto from 'crypto';
-import { unregisterImages } from '@/lib/image-index';
+import { checkPassword } from '@/lib/api-auth';
+import { INDEX_FILENAME, unregisterImages } from '@/lib/image-index';
 import { getOutputDir } from '@/lib/server-settings';
 import { trashImage } from '@/lib/image-trash';
 import fs from 'fs/promises';
@@ -8,9 +8,6 @@ import path from 'path';
 
 
 
-function sha256(data: string): string {
-    return crypto.createHash('sha256').update(data).digest('hex');
-}
 
 type DeleteRequestBody = {
     filenames: string[];
@@ -32,18 +29,10 @@ export async function POST(request: NextRequest) {
         const clonedRequest = request.clone();
         const tempBodyForAuth = await clonedRequest.json();
 
-        if (process.env.APP_PASSWORD) {
-            const clientPasswordHash = tempBodyForAuth.passwordHash as string | null;
-
-            if (!clientPasswordHash) {
-                console.error('Missing password hash for delete operation.');
-                return NextResponse.json({ error: 'Unauthorized: Missing password hash.' }, { status: 401 });
-            }
-            const serverPasswordHash = sha256(process.env.APP_PASSWORD);
-            if (clientPasswordHash !== serverPasswordHash) {
-                console.error('Invalid password hash for delete operation.');
-                return NextResponse.json({ error: 'Unauthorized: Invalid password.' }, { status: 401 });
-            }
+        const authFailure = checkPassword(tempBodyForAuth.passwordHash);
+        if (authFailure) {
+            console.error(`Delete request rejected: ${authFailure.error}`);
+            return NextResponse.json({ error: authFailure.error }, { status: authFailure.status });
         }
         // Now read the original request body for processing
         requestBody = await request.json();
@@ -66,7 +55,15 @@ export async function POST(request: NextRequest) {
     const deletionResults: FileDeletionResult[] = [];
 
     for (const filename of filenames) {
-        if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        // `index.json` is the registry and `.trash` holds recoverable deletions: neither is a picture.
+        if (
+            !filename ||
+            filename === INDEX_FILENAME ||
+            filename.startsWith('.') ||
+            filename.includes('..') ||
+            filename.includes('/') ||
+            filename.includes('\\')
+        ) {
             console.warn(`Invalid filename for deletion: ${filename}`);
             deletionResults.push({ filename, success: false, error: 'Invalid filename format.' });
             continue;

@@ -1,3 +1,4 @@
+import { constants as fsConstants } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -110,6 +111,19 @@ export async function changeOutputDir(
             if (entry === '.trash') continue; // the trash stays with its own folder
             const source = path.join(from, entry);
             const target = path.join(to, entry);
+
+            // POSIX rename() silently replaces the destination and never reports EEXIST (that is the
+            // Windows behaviour), so the collision has to be detected up front. Losing the target's
+            // index.json would orphan every picture next to it.
+            try {
+                await fs.stat(target);
+                failed += 1;
+                console.warn(`Skipped ${entry}: ${to} already has a file with that name.`);
+                continue;
+            } catch {
+                // Target does not exist — safe to move.
+            }
+
             try {
                 const stat = await fs.stat(source);
                 if (!stat.isFile()) continue;
@@ -117,14 +131,10 @@ export async function changeOutputDir(
                 moved += 1;
             } catch (error) {
                 const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null;
-                if (code === 'EEXIST') {
-                    failed += 1;
-                    console.warn(`Skipped ${entry}: a file with that name already exists in ${to}`);
-                    continue;
-                }
                 if (code === 'EXDEV') {
                     try {
-                        await fs.copyFile(source, target);
+                        // COPYFILE_EXCL keeps the same "never overwrite" promise across filesystems.
+                        await fs.copyFile(source, target, fsConstants.COPYFILE_EXCL);
                         await fs.unlink(source);
                         moved += 1;
                         continue;

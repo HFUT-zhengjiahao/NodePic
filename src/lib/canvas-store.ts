@@ -114,8 +114,30 @@ export function loadRegistry(): CanvasRegistry {
     return registry;
 }
 
-/** Node count and last-touched time, for the sidebar. */
-export function canvasStats(canvasId: string): { nodeCount: number; updatedAt: number } {
+/**
+ * Node count plus a preview picture for the sidebar.
+ *
+ * The thumbnail is the newest picture the canvas holds — the node created last that actually has an
+ * image — so the list reads like a set of recent boards instead of a set of names.
+ */
+export function canvasStats(canvasId: string): {
+    nodeCount: number;
+    thumbnail: string | null;
+    kindCounts: Record<string, number>;
+} {
     const nodes = loadCanvasNodes(canvasId);
-    return { nodeCount: nodes.length, updatedAt: Date.now() };
+    const kindCounts: Record<string, number> = {};
+    let thumbnail: string | null = null;
+    let newest = -Infinity;
+
+    for (const node of nodes) {
+        kindCounts[node.data.kind] = (kindCounts[node.data.kind] ?? 0) + 1;
+        const image = node.data.images[node.data.viewIndex ?? 0] ?? node.data.images[0];
+        if (image && node.data.createdAt >= newest) {
+            newest = node.data.createdAt;
+            thumbnail = image.filename;
+        }
+    }
+
+    return { nodeCount: nodes.length, thumbnail, kindCounts };
 }

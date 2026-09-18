@@ -1,3 +1,4 @@
+import { INDEX_FILENAME } from '@/lib/image-index';
 import { getOutputDir } from '@/lib/server-settings';
 import fs from 'fs/promises';
 import path from 'path';
@@ -21,9 +22,16 @@ async function trashPaths(): Promise<{ dir: string; trash: string }> {
  * name containing a slash, and the registry scan skips directories.
  */
 export async function trashImage(filename: string): Promise<{ bytes: number; trashedTo: string }> {
+    if (filename === INDEX_FILENAME || filename.startsWith('.') || filename.includes('/') || filename.includes('\\')) {
+        throw new Error(`Refusing to trash a reserved name: ${filename}`);
+    }
+
     const { dir, trash } = await trashPaths();
     const source = path.join(dir, filename);
     const stat = await fs.stat(source);
+    if (!stat.isFile()) {
+        throw new Error(`Refusing to trash a non-file: ${filename}`);
+    }
 
     const day = new Date().toISOString().slice(0, 10);
     const targetDir = path.join(trash, day);
@@ -43,8 +51,13 @@ export async function trashImage(filename: string): Promise<{ bytes: number; tra
     return { bytes: stat.size, trashedTo: path.relative(dir, target) };
 }
 
-/** Drops trash folders older than the retention window. Returns how many files went away for good. */
-export async function purgeOldTrash(): Promise<number> {
+/**
+ * Drops trash folders older than the retention window. Returns how many files went away for good.
+ *
+ * The window is a parameter rather than the module constant: the settings page owns the number, and
+ * a purge that ignores it would quietly delete pictures the user believes are still recoverable.
+ */
+export async function purgeOldTrash(retentionDays: number = TRASH_RETENTION_DAYS): Promise<number> {
     const { trash } = await trashPaths();
     let days: string[];
     try {
@@ -53,7 +66,8 @@ export async function purgeOldTrash(): Promise<number> {
         return 0; // no trash yet
     }
 
-    const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const windowDays = Number.isFinite(retentionDays) && retentionDays > 0 ? retentionDays : TRASH_RETENTION_DAYS;
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
     let removed = 0;
 
     for (const day of days) {
@@ -74,7 +88,7 @@ export async function purgeOldTrash(): Promise<number> {
     }
 
     if (removed > 0) {
-        console.log(`Purged ${removed} file(s) older than ${TRASH_RETENTION_DAYS} days from the trash.`);
+        console.log(`Purged ${removed} file(s) older than ${windowDays} days from the trash.`);
     }
     return removed;
 }

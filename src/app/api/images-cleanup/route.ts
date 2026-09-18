@@ -1,5 +1,5 @@
-import crypto from 'crypto';
 import fs from 'fs/promises';
+import { checkPassword } from '@/lib/api-auth';
 import { withIndexLock } from '@/lib/image-index';
 import { purgeOldTrash, trashImage } from '@/lib/image-trash';
 import { getOutputDir, readServerSettings } from '@/lib/server-settings';
@@ -11,9 +11,6 @@ import path from 'path';
 /** Files younger than this are never deleted: they may belong to a request that is still running. */
 const MIN_AGE_MS = Number(process.env.IMAGE_CLEANUP_MIN_AGE_MINUTES ?? 10) * 60 * 1000;
 
-function sha256(data: string): string {
-    return crypto.createHash('sha256').update(data).digest('hex');
-}
 
 type CleanupRequestBody = {
     /** Filenames that must survive. Must not be empty — an empty list is almost always a bug. */
@@ -41,11 +38,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
     }
 
-    if (process.env.APP_PASSWORD) {
-        const serverPasswordHash = sha256(process.env.APP_PASSWORD);
-        if (!body.passwordHash || body.passwordHash !== serverPasswordHash) {
-            return NextResponse.json({ error: 'Unauthorized: Invalid or missing password.' }, { status: 401 });
-        }
+    const authFailure = checkPassword(body.passwordHash);
+    if (authFailure) {
+        return NextResponse.json({ error: authFailure.error }, { status: authFailure.status });
     }
 
     if (!Array.isArray(body.keep)) {
@@ -132,7 +127,7 @@ export async function POST(request: NextRequest) {
             };
         });
 
-        const purged = dryRun ? 0 : await purgeOldTrash();
+        const purged = dryRun ? 0 : await purgeOldTrash(trashRetentionDays);
 
         console.log(
             `Image cleanup (${dryRun ? 'dry run' : 'applied'}): ${outcome.deletedFiles.length} deletable, ` +

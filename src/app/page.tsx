@@ -80,6 +80,7 @@ export default function Home() {
         bytes: number;
         skippedRecent: number;
         untracked: number;
+        retentionDays: number;
     } | null>(null);
     const [isCleaningUp, setIsCleaningUp] = React.useState(false);
     /** Flips once the stored history has been read, so nothing is written before that. */
@@ -362,7 +363,8 @@ export default function Home() {
                 files: result.deletedFiles ?? [],
                 bytes: result.freedBytes ?? 0,
                 skippedRecent: result.skippedRecent?.length ?? 0,
-                untracked: result.untracked?.length ?? 0
+                untracked: result.untracked?.length ?? 0,
+                retentionDays: result.trashRetentionDays ?? 30
             });
         } catch (error) {
             console.error('Cleanup preview failed:', error);
@@ -519,7 +521,9 @@ export default function Home() {
                             })}
                         </p>
                         <p className='text-slate-500'>
-                            {t('Deleted files are moved to the trash folder and kept for {days} days.', { days: 30 })}
+                            {t('Deleted files are moved to the trash folder and kept for {days} days.', {
+                                days: cleanupPreview?.retentionDays ?? 30
+                            })}
                         </p>
                         {!!cleanupPreview?.skippedRecent && (
                             <p className='text-amber-600'>

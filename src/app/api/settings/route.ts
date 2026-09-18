@@ -1,3 +1,4 @@
+import { checkPassword } from '@/lib/api-auth';
 import fs from 'fs/promises';
 import { changeOutputDir, ensureOutputDir, readServerSettings, writeServerSettings } from '@/lib/server-settings';
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,10 +11,19 @@ type SettingsPatch = {
     trashRetentionDays?: number;
     /** Only used when outputDir changes: carry the existing pictures into the new folder. */
     moveExisting?: boolean;
+    /** Required whenever APP_PASSWORD is configured. */
+    passwordHash?: string;
 };
 
 /** Reports the current settings plus a few facts the UI needs to render the form sensibly. */
-export async function GET() {
+export async function GET(request: NextRequest) {
+    // The password travels in the query string here because GET has no body; the endpoint exposes
+    // absolute paths and writability, which should not be readable by anyone who reaches the port.
+    const authFailure = checkPassword(request.nextUrl.searchParams.get('passwordHash'));
+    if (authFailure) {
+        return NextResponse.json({ error: authFailure.error }, { status: authFailure.status });
+    }
+
     const settings = await readServerSettings();
     let fileCount = 0;
     let totalBytes = 0;
@@ -55,6 +65,11 @@ export async function PUT(request: NextRequest) {
         body = (await request.json()) as SettingsPatch;
     } catch {
         return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
+    }
+
+    const authFailure = checkPassword(body.passwordHash);
+    if (authFailure) {
+        return NextResponse.json({ error: authFailure.error }, { status: authFailure.status });
     }
 
     try {

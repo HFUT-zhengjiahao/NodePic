@@ -197,5 +197,7 @@ export const canvas: Record<string, string> = {
     'Transparent': '透明',
     'Custom': '自定义',
     'JPEG': 'JPEG',
+    'Trash retention set to {days} days.': '回收站保留天数已设为 {days} 天。',
+    'Deleted pictures stay recoverable for (days)': '删除的图片保留多久（天）',
     'An unexpected error occurred.': '出错了，请重试。'
 };

@@ -1,5 +1,5 @@
-import crypto from 'crypto';
 import fs from 'fs/promises';
+import { checkPassword } from '@/lib/api-auth';
 import { registerImages } from '@/lib/image-index';
 import { ensureOutputDir } from '@/lib/server-settings';
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,9 +14,6 @@ const ALLOWED_TYPES: Record<string, string> = {
     'image/webp': 'webp'
 };
 
-function sha256(data: string): string {
-    return crypto.createHash('sha256').update(data).digest('hex');
-}
 
 /**
  * Stores a locally picked picture next to the generated ones.
@@ -34,12 +31,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Expected a multipart form body.' }, { status: 400 });
     }
 
-    if (process.env.APP_PASSWORD) {
-        const serverPasswordHash = sha256(process.env.APP_PASSWORD);
-        const clientPasswordHash = formData.get('passwordHash');
-        if (typeof clientPasswordHash !== 'string' || clientPasswordHash !== serverPasswordHash) {
-            return NextResponse.json({ error: 'Unauthorized: Invalid or missing password.' }, { status: 401 });
-        }
+    const authFailure = checkPassword(formData.get('passwordHash'));
+    if (authFailure) {
+        return NextResponse.json({ error: authFailure.error }, { status: authFailure.status });
     }
 
     const uploads = formData.getAll('file').filter((entry): entry is File => entry instanceof File);

@@ -53,13 +53,16 @@ export function SettingsButton({
     const [open, setOpen] = React.useState(false);
     const [server, setServer] = React.useState<ServerSettingsState | null>(null);
     const [draftDir, setDraftDir] = React.useState('');
+    const [retentionDraft, setRetentionDraft] = React.useState('30');
     const [moveExisting, setMoveExisting] = React.useState(true);
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
 
     const load = React.useCallback(async () => {
         try {
-            const response = await fetch('/api/settings', { cache: 'no-store' });
+            // The endpoint reports absolute paths, so it is gated like the write routes are.
+            const query = passwordHash ? `?passwordHash=${encodeURIComponent(passwordHash)}` : '';
+            const response = await fetch(`/api/settings${query}`, { cache: 'no-store' });
             const payload = await response.json();
             if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
             setServer({
@@ -70,6 +73,7 @@ export function SettingsButton({
                 totalBytes: payload.totalBytes
             });
             setDraftDir(payload.settings.outputDir);
+            setRetentionDraft(String(payload.settings.trashRetentionDays));
             setError(null);
         } catch (loadError) {
             setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -85,7 +89,11 @@ export function SettingsButton({
             const response = await fetch('/api/settings', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ outputDir: draftDir.trim(), moveExisting })
+                body: JSON.stringify({
+                    outputDir: draftDir.trim(),
+                    moveExisting,
+                    ...(passwordHash ? { passwordHash } : {})
+                })
             });
             const payload = await response.json();
             if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
@@ -104,7 +112,33 @@ export function SettingsButton({
         } finally {
             setBusy(false);
         }
-    }, [draftDir, load, moveExisting, onNotify, server?.outputDir, t]);
+    }, [draftDir, load, moveExisting, onNotify, passwordHash, server?.outputDir, t]);
+
+    const saveRetention = React.useCallback(async () => {
+        const value = Number(retentionDraft);
+        if (!Number.isFinite(value) || value < 1 || value > 3650 || value === server?.trashRetentionDays) return;
+        setBusy(true);
+        try {
+            const response = await fetch('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    trashRetentionDays: Math.floor(value),
+                    ...(passwordHash ? { passwordHash } : {})
+                })
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+            onNotify(t('Trash retention set to {days} days.', { days: payload.settings.trashRetentionDays }), 'success');
+            await load();
+        } catch (saveError) {
+            const message = saveError instanceof Error ? saveError.message : String(saveError);
+            setError(message);
+            onNotify(message, 'error');
+        } finally {
+            setBusy(false);
+        }
+    }, [load, onNotify, passwordHash, retentionDraft, server?.trashRetentionDays, t]);
 
     const megabytes = server ? (server.totalBytes / 1024 / 1024).toFixed(1) : '0';
     const [passwordDraft, setPasswordDraft] = React.useState('');
@@ -212,6 +246,31 @@ export function SettingsButton({
                                 'Pictures are referenced by file name, so moving the folder keeps every canvas working.'
                             )}
                         </p>
+
+                        <div className='space-y-1.5 pt-1'>
+                            <Label htmlFor='settings-retention' className='text-[12px] text-slate-600'>
+                                {t('Deleted pictures stay recoverable for (days)')}
+                            </Label>
+                            <div className='flex gap-2'>
+                                <Input
+                                    id='settings-retention'
+                                    type='number'
+                                    min={1}
+                                    max={3650}
+                                    value={retentionDraft}
+                                    onChange={(event) => setRetentionDraft(event.target.value)}
+                                    className='w-28 border-slate-200 bg-white text-[13px]'
+                                />
+                                <Button
+                                    type='button'
+                                    size='sm'
+                                    disabled={busy}
+                                    onClick={() => void saveRetention()}
+                                    className='bg-indigo-600 text-white hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
+                                    {busy ? t('Saving…') : t('Apply')}
+                                </Button>
+                            </div>
+                        </div>
                     </section>
 
                     <section className='space-y-3 border-t border-slate-100 pt-4'>

@@ -13,6 +13,24 @@ export type ImageIndex = {
     files: Record<string, ImageIndexEntry>;
 };
 
+/**
+ * File names this application is capable of producing.
+ *
+ * The bootstrap below runs whenever index.json is missing or unreadable. Adopting *every* file in
+ * the folder would mean that pointing the output directory at a folder full of personal pictures
+ * (or losing the registry) turns those pictures into deletion candidates on the next cleanup —
+ * "registered but unreferenced → trash". Restricting adoption to our own naming schemes keeps
+ * foreign files permanently untouchable.
+ */
+const GENERATED_NAME = /^\d{13}-\d+\.(png|jpe?g|webp)$/i;
+const UPLOADED_NAME = /^upload-[\w-]+\.(png|jpe?g|webp)$/i;
+/** The registry itself and its temp file are never pictures. */
+export const INDEX_FILENAME = 'index.json';
+
+export function isOwnedFilename(name: string): boolean {
+    return GENERATED_NAME.test(name) || UPLOADED_NAME.test(name);
+}
+
 /** Absolute folder + index path for the currently configured output directory. */
 async function outputPaths(): Promise<{ dir: string; index: string }> {
     const dir = await getOutputDir();
@@ -40,7 +58,10 @@ function serialize<T>(task: () => Promise<T>): Promise<T> {
 async function writeIndex(index: ImageIndex): Promise<void> {
     const { dir, index: indexFile } = await outputPaths();
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(indexFile, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
+    // Atomic replace: a half-written index.json would send the next read down the bootstrap path.
+    const tempFile = `${indexFile}.tmp`;
+    await fs.writeFile(tempFile, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
+    await fs.rename(tempFile, indexFile);
 }
 
 /**
@@ -66,7 +87,7 @@ async function readIndexUnlocked(): Promise<ImageIndex> {
     const files: Record<string, ImageIndexEntry> = {};
     try {
         for (const name of await fs.readdir(dir)) {
-            if (name === 'index.json') continue;
+            if (name === INDEX_FILENAME || !isOwnedFilename(name)) continue;
             try {
                 const stat = await fs.stat(path.join(dir, name));
                 if (stat.isFile()) {
@@ -82,7 +103,10 @@ async function readIndexUnlocked(): Promise<ImageIndex> {
 
     const bootstrapped: ImageIndex = { version: 1, files };
     await writeIndex(bootstrapped);
-    console.log(`Image index bootstrapped with ${Object.keys(files).length} existing file(s).`);
+    console.log(
+        `Image index bootstrapped: adopted ${Object.keys(files).length} file(s) matching this app's ` +
+            'naming scheme; anything else in the folder stays unregistered and therefore undeletable.'
+    );
     return bootstrapped;
 }
 

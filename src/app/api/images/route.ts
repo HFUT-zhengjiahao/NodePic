@@ -7,7 +7,7 @@ import {
     type ImageOutputFormat,
     type ImageQuality
 } from '@/lib/models';
-import crypto from 'crypto';
+import { checkPassword } from '@/lib/api-auth';
 import { registerImages } from '@/lib/image-index';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
@@ -92,9 +92,6 @@ async function ensureOutputDirExists(): Promise<string> {
     }
 }
 
-function sha256(data: string): string {
-    return crypto.createHash('sha256').update(data).digest('hex');
-}
 
 /**
  * Image generation is slow and metered upstream, and the canvas lets several nodes run at once.
@@ -162,17 +159,10 @@ async function handleImageRequest(request: NextRequest) {
 
         const formData = await request.formData();
 
-        if (process.env.APP_PASSWORD) {
-            const clientPasswordHash = formData.get('passwordHash') as string | null;
-            if (!clientPasswordHash) {
-                console.error('Missing password hash.');
-                return NextResponse.json({ error: 'Unauthorized: Missing password hash.' }, { status: 401 });
-            }
-            const serverPasswordHash = sha256(process.env.APP_PASSWORD);
-            if (clientPasswordHash !== serverPasswordHash) {
-                console.error('Invalid password hash.');
-                return NextResponse.json({ error: 'Unauthorized: Invalid password.' }, { status: 401 });
-            }
+        const authFailure = checkPassword(formData.get('passwordHash'));
+        if (authFailure) {
+            console.error(authFailure.error);
+            return NextResponse.json({ error: authFailure.error }, { status: authFailure.status });
         }
 
         const mode = formData.get('mode') as 'generate' | 'edit' | null;
