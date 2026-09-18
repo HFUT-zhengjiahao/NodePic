@@ -88,7 +88,7 @@ export function CanvasSidebar({
 
     if (collapsed) {
         return (
-            <div className='sticky top-1 flex h-[calc(100dvh-1rem)] w-12 shrink-0 flex-col items-center gap-1.5 pt-1'>
+            <div className='sticky top-1 flex h-[calc(100dvh-1rem)] w-10 shrink-0 flex-col items-center gap-1.5 pt-1'>
                 <Button
                     type='button'
                     variant='outline'

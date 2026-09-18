@@ -57,6 +57,7 @@ const VIEW_KEY = 'gptImageWorkspaceView';
 const SETTINGS_KEY = 'gptImageSettings';
 const SKIP_DELETE_KEY = 'imageGenSkipDeleteConfirm';
 const PASSWORD_KEY = 'clientPasswordHash';
+const SIDEBAR_KEY = 'gptImageSidebarCollapsed';
 
 const DEFAULT_CLIENT_SETTINGS: ClientDefaults = { model: DEFAULT_GPT_IMAGE_MODEL, quality: 'high', size: 'auto' };
 
@@ -123,6 +124,7 @@ export default function Home() {
                 }
 
                 setSkipDeleteConfirmation(window.localStorage.getItem(SKIP_DELETE_KEY) === 'true');
+                setIsCanvasListCollapsed(window.localStorage.getItem(SIDEBAR_KEY) === 'true');
                 setClientPasswordHash(window.localStorage.getItem(PASSWORD_KEY));
 
                 const registry = loadRegistry();
@@ -172,6 +174,19 @@ export default function Home() {
         } catch (error) {
             console.warn('Could not persist the password hash:', error);
         }
+    }, []);
+
+    /** The rail width is a layout preference, so it survives a reload like the rest of them. */
+    const toggleSidebar = React.useCallback(() => {
+        setIsCanvasListCollapsed((prev) => {
+            const next = !prev;
+            try {
+                window.localStorage.setItem(SIDEBAR_KEY, String(next));
+            } catch (error) {
+                console.warn('Could not persist the sidebar state:', error);
+            }
+            return next;
+        });
     }, []);
 
     const updateSkipDelete = React.useCallback((skip: boolean) => {
@@ -477,11 +492,16 @@ export default function Home() {
     );
 
     return (
-        <main className='flex min-h-screen flex-col items-center bg-slate-50 px-4 py-2 text-slate-900 md:px-8 lg:px-10'>
+        <main
+            className={`flex min-h-screen flex-col items-center bg-slate-50 py-2 text-slate-900 ${
+                // A collapsed rail is only a few icons wide, so the page keeps its generous padding for
+                // the expanded list but hands the space back to the board when the rail is folded away.
+                isCanvasListCollapsed ? 'px-2 md:px-3' : 'px-4 md:px-8 lg:px-10'
+            }`}>
             {/* One layout for both views. The sidebar used to be rendered twice — once inside a flex
                 row for the canvas, once as a block above the gallery — which is why the history page
                 ended up pushed underneath it. */}
-            <div className='flex w-full max-w-screen-2xl items-start gap-4'>
+            <div className={`flex w-full max-w-screen-2xl items-start ${isCanvasListCollapsed ? 'gap-2' : 'gap-4'}`}>
                 <CanvasSidebar
                     view={view}
                     onViewChange={selectView}
@@ -489,7 +509,7 @@ export default function Home() {
                     activeId={activeCanvasId}
                     revision={canvasRevision}
                     collapsed={isCanvasListCollapsed}
-                    onToggleCollapsed={() => setIsCanvasListCollapsed((prev) => !prev)}
+                    onToggleCollapsed={toggleSidebar}
                     onSelect={(id) => {
                         handleSelectCanvas(id);
                         selectView('canvas');

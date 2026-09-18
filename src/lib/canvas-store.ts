@@ -22,7 +22,14 @@ export const LEGACY_CANVAS_KEY = 'gptImageCanvas';
 
 const nodesKey = (id: string) => `gptImageCanvas:${id}`;
 
-export type CanvasViewport = { x: number; y: number; zoom: number };
+export type CanvasViewport = {
+    x: number;
+    y: number;
+    zoom: number;
+    /** Size of the board when this viewport was saved — see loadCanvasViewport. */
+    width?: number;
+    height?: number;
+};
 
 const viewportKey = (canvasId: string) => `gptImageCanvasViewport:${canvasId}`;
 
@@ -32,13 +39,32 @@ const viewportKey = (canvasId: string) => `gptImageCanvasViewport:${canvasId}`;
  * Without this every mount (first load, canvas switch, any remount) re-framed the board with fitView,
  * which on a wide graph means zooming out to the floor and rendering the nodes unreadable.
  */
-export function loadCanvasViewport(canvasId: string): CanvasViewport | null {
+export function loadCanvasViewport(
+    canvasId: string,
+    /** Current board size: a viewport saved for a different size is not reused. */
+    current?: { width: number; height: number }
+): CanvasViewport | null {
     const stored = readJson<CanvasViewport>(viewportKey(canvasId));
     if (!stored || typeof stored.x !== 'number' || typeof stored.y !== 'number' || typeof stored.zoom !== 'number') {
         return null;
     }
     if (!Number.isFinite(stored.x) || !Number.isFinite(stored.y) || !Number.isFinite(stored.zoom)) return null;
-    return { x: stored.x, y: stored.y, zoom: Math.min(Math.max(stored.zoom, 0.05), 4) };
+
+    // A viewport is only meaningful for the board it was captured on. When the rail is collapsed, the
+    // top bar is removed or the window is resized, reusing it leaves part of the graph off-screen — so
+    // the caller re-frames instead.
+    if (current && stored.width && stored.height) {
+        const changed = Math.abs(stored.width - current.width) > 32 || Math.abs(stored.height - current.height) > 32;
+        if (changed) return null;
+    }
+
+    return {
+        x: stored.x,
+        y: stored.y,
+        zoom: Math.min(Math.max(stored.zoom, 0.05), 4),
+        width: stored.width,
+        height: stored.height
+    };
 }
 
 export function saveCanvasViewport(canvasId: string, viewport: CanvasViewport): void {

@@ -192,7 +192,8 @@ function CanvasFlow({
     }, [nodes, selectedEdgeIds]);
     const [maskTarget, setMaskTarget] = React.useState<{ nodeId: string; filename: string; path: string } | null>(null);
     const [expanded, setExpanded] = React.useState<{ path: string; filename: string } | null>(null);
-    const { screenToFlowPosition, fitView, zoomTo } = useReactFlow();
+    const { screenToFlowPosition, fitView, zoomTo, getViewport, setViewport } = useReactFlow();
+    const boardRef = React.useRef<HTMLDivElement>(null);
 
     const nodesRef = React.useRef(nodes);
     const edgesRef = React.useRef(edges);
@@ -305,7 +306,8 @@ function CanvasFlow({
         });
     }, [maskRecords, setNodes]);
     const skipFirstSave = React.useRef(true);
-    const viewportReady = React.useRef(false);
+    /** True once the initial viewport has been applied, so the first move events are ignored. */
+    const [viewportReady, setViewportReady] = React.useState(false);
     const hadNodes = React.useRef(initial.nodes.length > 0);
     const explicitClear = React.useRef(false);
 
@@ -716,6 +718,28 @@ function CanvasFlow({
         }
         return { x, y };
     }, []);
+
+    /**
+     * Collapsing the sidebar widens the board, and React Flow keeps the top-left corner fixed — so the
+     * left half of the graph slides out of view. Shifting by half the width change keeps whatever the
+     * user was looking at in the middle.
+     */
+    React.useEffect(() => {
+        const element = boardRef.current;
+        if (!element) return;
+
+        let lastWidth = element.clientWidth;
+        const observer = new ResizeObserver(() => {
+            const width = element.clientWidth;
+            const delta = width - lastWidth;
+            lastWidth = width;
+            if (!viewportReady || delta === 0) return;
+            const viewport = getViewport();
+            void setViewport({ ...viewport, x: viewport.x + delta / 2 }, { duration: 0 });
+        });
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, [getViewport, setViewport, viewportReady]);
 
     /** Node data honouring the defaults picked in the settings panel. */
     const makeTaskData = React.useCallback(
@@ -1265,6 +1289,7 @@ function CanvasFlow({
 
     return (
         <div
+            ref={boardRef}
             className='relative h-[calc(100dvh-40px)] min-h-[560px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
             onDoubleClick={handleDoubleClick}
             onMouseMove={(event) => {
@@ -1442,7 +1467,11 @@ function CanvasFlow({
                     nodeTypes={nodeTypes}
                     onInit={(instance) => {
                         // Prefer exactly where the user left off; only frame the graph the first time.
-                        const saved = loadCanvasViewport(canvasId);
+                        const boardSize = {
+                            width: boardRef.current?.clientWidth ?? 0,
+                            height: boardRef.current?.clientHeight ?? 0
+                        };
+                        const saved = loadCanvasViewport(canvasId, boardSize);
                         if (saved) {
                             void instance.setViewport(saved, { duration: 0 });
                         } else {
@@ -1456,13 +1485,17 @@ function CanvasFlow({
                                 }
                             });
                         }
-                        viewportReady.current = true;
+                        setViewportReady(true);
                     }}
                     onMoveEnd={(_event, viewport) => {
                         // React Flow emits move events while mounting; ignoring those keeps the first
                         // frame from overwriting the stored viewport with the default one.
-                        if (!viewportReady.current) return;
-                        saveCanvasViewport(canvasId, viewport);
+                        if (!viewportReady) return;
+                        saveCanvasViewport(canvasId, {
+                            ...viewport,
+                            width: boardRef.current?.clientWidth ?? 0,
+                            height: boardRef.current?.clientHeight ?? 0
+                        });
                     }}
                     zoomOnDoubleClick={false}
                     minZoom={0.15}
