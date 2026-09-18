@@ -100,12 +100,9 @@ export default function Home() {
                 const storedHistory = window.localStorage.getItem(HISTORY_KEY);
                 if (storedHistory) {
                     const parsed = JSON.parse(storedHistory) as HistoryMetadata[];
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                        historyHadEntries.current = true;
-                        setHistory(parsed);
-                    }
+                    if (Array.isArray(parsed) && parsed.length > 0) setHistory(parsed);
                 }
-                historyLoaded.current = true;
+                setHistoryReady(true);
 
                 const storedView = window.localStorage.getItem(VIEW_KEY);
                 if (storedView === 'history' || storedView === 'canvas') setView(storedView);
@@ -131,20 +128,22 @@ export default function Home() {
         });
     }, []);
 
-    const historyLoaded = React.useRef(false);
-    const historyHadEntries = React.useRef(false);
+    /** Flips once the stored history has been read, so nothing is written before that. */
+    const [historyReady, setHistoryReady] = React.useState(false);
+    /** Only an explicit "clear history" may persist an empty list. */
+    const explicitHistoryClear = React.useRef(false);
 
     React.useEffect(() => {
-        if (history.length > 0) historyHadEntries.current = true;
         // Writing before the stored history has been read would replace it with the initial empty
         // array — the exact way this list was wiped once already.
-        if (!historyLoaded.current && history.length === 0) return;
+        if (!historyReady) return;
+        if (history.length === 0 && !explicitHistoryClear.current) return;
         try {
             window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
         } catch (error) {
             console.error('Could not persist the history:', error);
         }
-    }, [history]);
+    }, [history, historyReady]);
 
     const selectView = React.useCallback((next: 'canvas' | 'history') => {
         setView(next);
@@ -311,6 +310,7 @@ export default function Home() {
         ) {
             return;
         }
+        explicitHistoryClear.current = true;
         setHistory([]);
         try {
             window.localStorage.removeItem(HISTORY_KEY);
