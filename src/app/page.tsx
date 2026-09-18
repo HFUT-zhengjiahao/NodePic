@@ -436,7 +436,8 @@ export default function HomePage() {
 
     React.useEffect(() => {
         const handlePaste = (event: ClipboardEvent) => {
-            if (mode !== 'edit' || !event.clipboardData) {
+            // The canvas owns pasting while it is on screen: there an image becomes a node.
+            if (viewMode !== 'list' || mode !== 'edit' || !event.clipboardData) {
                 return;
             }
 
@@ -468,7 +469,7 @@ export default function HomePage() {
         return () => {
             window.removeEventListener('paste', handlePaste);
         };
-    }, [mode, editImageFiles.length, notify, t]);
+    }, [mode, editImageFiles.length, notify, t, viewMode]);
 
     async function sha256Client(text: string): Promise<string> {
         const encoder = new TextEncoder();

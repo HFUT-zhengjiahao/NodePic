@@ -384,7 +384,7 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
 
     /** Adds one node per uploaded picture, starting at the drop point (or the viewport centre). */
     const addImageNodes = React.useCallback(
-        async (files: File[], position?: { x: number; y: number }) => {
+        async (files: File[], position?: { x: number; y: number }, source: 'picker' | 'paste' | 'drop' = 'picker') => {
             if (files.length === 0) return;
             try {
                 const uploaded = await uploadFiles(files);
@@ -403,7 +403,12 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
                             }) as TaskNodeType
                     )
                 ]);
-                onNotify?.(t('Added {count} picture node(s).', { count: uploaded.length }), 'success');
+                onNotify?.(
+                    source === 'paste'
+                        ? t('Pasted {count} picture(s) into new node(s).', { count: uploaded.length })
+                        : t('Added {count} picture node(s).', { count: uploaded.length }),
+                    'success'
+                );
             } catch (error) {
                 console.error('Image upload failed:', error);
                 onNotify?.(error instanceof Error ? error.message : t('An unexpected error occurred.'), 'error');
@@ -454,13 +459,53 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
         [addImageNodes, onNotify, patchNode, t, uploadFiles]
     );
 
+    /** Where the pointer last was, so a pasted picture appears at a sensible spot. */
+    const lastPointer = React.useRef<{ x: number; y: number } | null>(null);
+
+    /**
+     * Ctrl/Cmd+V anywhere over the canvas turns clipboard pictures into upload nodes.
+     *
+     * The picture goes through the same /api/image-upload path as the toolbar button, so a pasted
+     * screenshot behaves exactly like a picked file: registered, reusable as an edit source, and
+     * protected from the orphan cleanup while a node references it.
+     */
+    React.useEffect(() => {
+        const isEditable = (target: EventTarget | null) =>
+            target instanceof HTMLElement &&
+            (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+        const handlePaste = (event: ClipboardEvent) => {
+            if (isEditable(event.target)) return; // let text fields handle their own paste
+
+            const files = Array.from(event.clipboardData?.items ?? [])
+                .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => Boolean(file));
+            if (files.length === 0) return;
+
+            event.preventDefault();
+            const pointer = lastPointer.current;
+            const position = pointer
+                ? screenToFlowPosition({ x: pointer.x - 190, y: pointer.y - 120 })
+                : undefined;
+            void addImageNodes(files, position, 'paste');
+        };
+
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [addImageNodes, screenToFlowPosition]);
+
     /** Dropping files anywhere on the canvas adds them as picture nodes. */
     const handleDrop = React.useCallback(
         (event: React.DragEvent) => {
             if (!event.dataTransfer?.files?.length) return;
             event.preventDefault();
             const position = screenToFlowPosition({ x: event.clientX - 190, y: event.clientY - 120 });
-            void addImageNodes(Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith('image/')), position);
+            void addImageNodes(
+                Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith('image/')),
+                position,
+                'drop'
+            );
         },
         [addImageNodes, screenToFlowPosition]
     );
@@ -952,6 +997,9 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
         <div
             className='relative h-[calc(100dvh-88px)] min-h-[520px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
             onDoubleClick={handleDoubleClick}
+            onMouseMove={(event) => {
+                lastPointer.current = { x: event.clientX, y: event.clientY };
+            }}
             onDragOver={(event) => {
                 if (event.dataTransfer?.types?.includes('Files')) event.preventDefault();
             }}
@@ -1088,6 +1136,8 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
                     <span>{t('Double-click empty canvas to add a node')}</span>
                     <span className='text-slate-300'>·</span>
                     <span>{t('Drag from a node’s right dot onto another node to reference its image')}</span>
+                    <span className='text-slate-300'>·</span>
+                    <span className='text-slate-400'>{t('Ctrl+V pastes a picture into a new node')}</span>
                     <span className='text-slate-300'>·</span>
                     <span className='text-slate-400'>{t('Shift + double-click adds an edit node')}</span>
                     <button

@@ -101,5 +101,7 @@ export const canvas: Record<string, string> = {
     'Duplicate': '复制',
     'Delete canvas': '删除画布',
     '{count} nodes': '{count} 个节点',
+    'Ctrl+V pastes a picture into a new node': 'Ctrl+V 可粘贴图片建节点',
+    'Pasted {count} picture(s) into new node(s).': '已把粘贴的 {count} 张图片建成节点。',
     'An unexpected error occurred.': '出错了，请重试。'
 };
