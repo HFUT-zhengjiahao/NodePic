@@ -1207,6 +1207,13 @@ function CanvasFlow({
                                 selected: false,
                                 data: {
                                     ...node.data,
+                                    // Merging over the defaults keeps files exported by an older version
+                                    // (or hand-edited ones) renderable instead of crashing the board.
+                                    params: { ...DEFAULT_TASK_PARAMS, ...(node.data?.params ?? {}) },
+                                    sourceFilenames: Array.isArray(node.data?.sourceFilenames)
+                                        ? node.data.sourceFilenames
+                                        : [],
+                                    images: Array.isArray(node.data?.images) ? node.data.images : [],
                                     // A file exported mid-run must not come back as "running".
                                     status:
                                         node.data.status === 'running' || node.data.status === 'queued'

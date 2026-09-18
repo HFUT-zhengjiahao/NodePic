@@ -460,7 +460,8 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         {showParams ? t('Hide parameters') : t('Show parameters')}
                     </button>
                     <span className='ml-auto'>
-                        {sizeLabel(data.params.size)} · {data.params.quality} · {data.params.outputFormat.toUpperCase()}
+                        {sizeLabel(data.params.size ?? 'auto')} · {data.params.quality ?? 'auto'} ·{' '}
+                        {(data.params.outputFormat ?? 'png').toUpperCase()}
                     </span>
                 </div>
                 )}
