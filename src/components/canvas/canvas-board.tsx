@@ -112,7 +112,11 @@ type CanvasBoardProps = {
     /** Called after every persisted change so the sidebar can refresh its counters. */
     onSaved?: () => void;
     /** Model/quality to start new nodes with, chosen in the settings panel. */
-    nodeDefaults?: { model: CanvasTaskParams['model']; quality: CanvasTaskParams['quality'] };
+    nodeDefaults?: {
+        model: CanvasTaskParams['model'];
+        quality: CanvasTaskParams['quality'];
+        size: CanvasTaskParams['size'];
+    };
     /** Pictures the history page wants dropped onto this canvas (token changes per request). */
     incomingImages?: { filenames: string[]; token: number } | null;
     onIncomingImagesHandled?: () => void;
@@ -682,11 +686,12 @@ function CanvasFlow({
                 params: {
                     ...DEFAULT_TASK_PARAMS,
                     model: nodeDefaults?.model ?? DEFAULT_TASK_PARAMS.model,
-                    quality: nodeDefaults?.quality ?? DEFAULT_TASK_PARAMS.quality
+                    quality: nodeDefaults?.quality ?? DEFAULT_TASK_PARAMS.quality,
+                    size: nodeDefaults?.size ?? DEFAULT_TASK_PARAMS.size
                 },
                 ...overrides
             }),
-        [nodeDefaults?.model, nodeDefaults?.quality]
+        [nodeDefaults?.model, nodeDefaults?.quality, nodeDefaults?.size]
     );
 
     const addNode = React.useCallback(

@@ -13,13 +13,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useI18n } from '@/lib/i18n';
 import { GPT_IMAGE_MODELS, type GptImageModel, type ImageQuality } from '@/lib/models';
+import type { SizePreset } from '@/lib/size-utils';
 import { FolderOpen, Settings as SettingsIcon } from 'lucide-react';
 import * as React from 'react';
 
 export type ClientDefaults = {
     model: GptImageModel;
     quality: ImageQuality;
+    size: SizePreset;
 };
+
+const SIZE_CHOICES: SizePreset[] = ['auto', 'square', 'landscape', 'portrait'];
 
 type ServerSettingsState = {
     outputDir: string;
@@ -212,7 +216,7 @@ export function SettingsButton({
 
                     <section className='space-y-3 border-t border-slate-100 pt-4'>
                         <h3 className='text-[13px] font-semibold text-slate-800'>{t('New node defaults')}</h3>
-                        <div className='grid grid-cols-2 gap-3'>
+                        <div className='grid grid-cols-3 gap-3'>
                             <div className='space-y-1.5'>
                                 <Label htmlFor='settings-model' className='text-[12px] text-slate-600'>
                                     {t('Model')}
@@ -227,6 +231,24 @@ export function SettingsButton({
                                     {GPT_IMAGE_MODELS.map((model) => (
                                         <option key={model} value={model}>
                                             {model}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className='space-y-1.5'>
+                                <Label htmlFor='settings-size' className='text-[12px] text-slate-600'>
+                                    {t('Size')}
+                                </Label>
+                                <select
+                                    id='settings-size'
+                                    value={defaults.size}
+                                    onChange={(event) =>
+                                        onDefaultsChange({ ...defaults, size: event.target.value as SizePreset })
+                                    }
+                                    className='h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800'>
+                                    {SIZE_CHOICES.map((size) => (
+                                        <option key={size} value={size}>
+                                            {t(size.charAt(0).toUpperCase() + size.slice(1))}
                                         </option>
                                     ))}
                                 </select>

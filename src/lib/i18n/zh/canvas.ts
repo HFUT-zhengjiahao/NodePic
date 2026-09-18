@@ -1,7 +1,6 @@
 /** Translations for the React Flow canvas view (src/components/canvas/*). */
 export const canvas: Record<string, string> = {
     Canvas: '画布',
-    List: '列表',
     'New generate node': '新建生成节点',
     'New edit node': '新建编辑节点',
     'Fit view': '适应视图',
@@ -154,6 +153,7 @@ export const canvas: Record<string, string> = {
     'Failed to load the uploaded mask image to check dimensions.': '无法加载上传的蒙版图片以检查尺寸。',
     'Edit Image': '编辑图片',
     'Model': '模型',
+    'Size': '尺寸',
     'Prompt': '提示词',
     'e.g., Add a party hat to the main subject': '例如：给主体加一顶派对帽',
     'Image preview for masking': '用于涂抹蒙版的图片预览',
@@ -188,5 +188,14 @@ export const canvas: Record<string, string> = {
     'Portrait': '纵向',
     'Generated image output': '生成的图片',
     'This entry still feeds {count} canvas node(s). Deleting it leaves those nodes without their source image.': '这条记录仍被画布上的 {count} 个节点引用，删除后这些节点会失去源图。',
+    'Low': '低',
+    'Medium': '中',
+    'High': '高',
+    'XHigh': '极高',
+    'Max': '最高',
+    'Opaque': '不透明',
+    'Transparent': '透明',
+    'Custom': '自定义',
+    'JPEG': 'JPEG',
     'An unexpected error occurred.': '出错了，请重试。'
 };

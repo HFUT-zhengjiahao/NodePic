@@ -62,7 +62,23 @@ function collectDefinedKeys() {
  * Keys resolved through a variable — `t(label)` where label comes from a constant list — cannot be
  * found by scanning for literals, so they are declared here explicitly.
  */
-const DYNAMIC_KEYS = new Set(['Square', 'Landscape', 'Portrait']);
+const DYNAMIC_KEYS = new Set([
+    // Labels rendered through a variable: t(option.charAt(0).toUpperCase() + option.slice(1)) and
+    // t(preset.label) in the canvas node and the settings panel.
+    'Auto',
+    'Low',
+    'Medium',
+    'High',
+    'XHigh',
+    'Max',
+    'Opaque',
+    'Transparent',
+    'Square',
+    'Landscape',
+    'Portrait',
+    'Custom',
+    'JPEG'
+]);
 
 const used = collectUsedKeys();
 const defined = collectDefinedKeys();

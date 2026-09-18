@@ -58,7 +58,7 @@ const SETTINGS_KEY = 'gptImageSettings';
 const SKIP_DELETE_KEY = 'imageGenSkipDeleteConfirm';
 const PASSWORD_KEY = 'clientPasswordHash';
 
-const DEFAULT_CLIENT_SETTINGS: ClientDefaults = { model: DEFAULT_GPT_IMAGE_MODEL, quality: 'high' };
+const DEFAULT_CLIENT_SETTINGS: ClientDefaults = { model: DEFAULT_GPT_IMAGE_MODEL, quality: 'high', size: 'auto' };
 
 export default function Home() {
     const { t } = useI18n();
@@ -117,7 +117,8 @@ export default function Home() {
                     const parsed = JSON.parse(storedSettings) as Partial<ClientDefaults>;
                     setClientSettings({
                         model: parsed.model ?? DEFAULT_CLIENT_SETTINGS.model,
-                        quality: parsed.quality ?? DEFAULT_CLIENT_SETTINGS.quality
+                        quality: parsed.quality ?? DEFAULT_CLIENT_SETTINGS.quality,
+                        size: parsed.size ?? DEFAULT_CLIENT_SETTINGS.size
                     });
                 }
 
