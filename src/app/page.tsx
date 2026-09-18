@@ -496,12 +496,12 @@ export default function Home() {
             className={`flex min-h-screen flex-col items-center bg-slate-50 py-2 text-slate-900 ${
                 // A collapsed rail is only a few icons wide, so the page keeps its generous padding for
                 // the expanded list but hands the space back to the board when the rail is folded away.
-                isCanvasListCollapsed ? 'px-2 md:px-3' : 'px-4 md:px-8 lg:px-10'
+                isCanvasListCollapsed ? 'px-2 md:px-3' : 'px-3 md:px-4'
             }`}>
             {/* One layout for both views. The sidebar used to be rendered twice — once inside a flex
                 row for the canvas, once as a block above the gallery — which is why the history page
                 ended up pushed underneath it. */}
-            <div className={`flex w-full max-w-screen-2xl items-start ${isCanvasListCollapsed ? 'gap-2' : 'gap-4'}`}>
+            <div className={`flex w-full max-w-screen-2xl items-start ${isCanvasListCollapsed ? 'gap-2' : 'gap-3'}`}>
                 <CanvasSidebar
                     view={view}
                     onViewChange={selectView}

@@ -1290,7 +1290,9 @@ function CanvasFlow({
     return (
         <div
             ref={boardRef}
-            className='relative h-[calc(100dvh-40px)] min-h-[560px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
+            // Same height as the rail next to it, so the board's bottom edge lines up with the
+            // settings button instead of stopping 24px short.
+            className='relative h-[calc(100dvh-1rem)] min-h-[560px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
             onDoubleClick={handleDoubleClick}
             onMouseMove={(event) => {
                 lastPointer.current = { x: event.clientX, y: event.clientY };
