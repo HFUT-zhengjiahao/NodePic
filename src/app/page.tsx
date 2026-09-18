@@ -82,6 +82,11 @@ export default function Home() {
         untracked: number;
     } | null>(null);
     const [isCleaningUp, setIsCleaningUp] = React.useState(false);
+    /** Flips once the stored history has been read, so nothing is written before that. */
+    const [historyReady, setHistoryReady] = React.useState(false);
+    /** Only an explicit "clear history" may persist an empty list. */
+    const explicitHistoryClear = React.useRef(false);
+
 
     const notify = React.useCallback((text: string, tone: 'info' | 'success' | 'error' = 'info') => {
         setToast({ text, tone });
@@ -127,11 +132,6 @@ export default function Home() {
             }
         });
     }, []);
-
-    /** Flips once the stored history has been read, so nothing is written before that. */
-    const [historyReady, setHistoryReady] = React.useState(false);
-    /** Only an explicit "clear history" may persist an empty list. */
-    const explicitHistoryClear = React.useRef(false);
 
     React.useEffect(() => {
         // Writing before the stored history has been read would replace it with the initial empty
