@@ -53,6 +53,8 @@ export async function runCanvasTask(input: RunCanvasTaskInput): Promise<RunCanva
     formData.append('output_format', params.outputFormat);
     formData.append('background', params.background);
     formData.append('moderation', params.moderation);
+    // The canvas renders results from /api/image/<filename>, so skip the base64 echo entirely.
+    formData.append('response', 'meta');
     if (
         (params.outputFormat === 'jpeg' || params.outputFormat === 'webp') &&
         Number.isFinite(params.compression)

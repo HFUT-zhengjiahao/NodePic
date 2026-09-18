@@ -11,16 +11,32 @@ export function isGptImageModel(value: unknown): value is GptImageModel {
 }
 
 export type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-/** Quality tiers that only the gpt-image-2.5 models accept; gpt-image-2 rejects them with HTTP 400. */
+
+/** The four quality tiers every GPT Image model accepts. */
+export const BASE_QUALITIES: readonly ImageQuality[] = ['auto', 'low', 'medium', 'high'];
+/** Tiers only some models accept; gpt-image-2 rejects them with HTTP 400. */
 export const EXTENDED_QUALITIES: readonly ImageQuality[] = ['xhigh', 'max'];
+
 /**
- * Local tweak: this instance talks to PackyAPI (https://cf.api.fan), whose validation only accepts
- * low/medium/high/auto and rejects xhigh/max with HTTP 400 for every gpt-image model.
- * Restore the upstream `model !== 'gpt-image-2'` behaviour if you ever point this at OpenAI directly.
+ * Accepted quality tiers per model.
+ *
+ * This deployment talks to PackyAPI (https://cf.api.fan), whose validation accepts only
+ * low/medium/high/auto for every gpt-image model — no model advertises the extended tiers here.
+ * Pointing this at OpenAI directly means adding 'xhigh'/'max' to the gpt-image-2.5 entries.
  */
+const MODEL_QUALITY_TIERS: Record<GptImageModel, readonly ImageQuality[]> = {
+    'gpt-image-2.5-flare': BASE_QUALITIES,
+    'gpt-image-2.5-sunburst': BASE_QUALITIES,
+    'gpt-image-2': BASE_QUALITIES
+};
+
+/** Quality tiers the given model accepts, in display order. */
+export function qualityOptionsFor(model: GptImageModel): readonly ImageQuality[] {
+    return MODEL_QUALITY_TIERS[model] ?? BASE_QUALITIES;
+}
+
 export function supportsExtendedQuality(model: GptImageModel): boolean {
-    void model;
-    return false;
+    return qualityOptionsFor(model).some((tier) => EXTENDED_QUALITIES.includes(tier));
 }
 
 export type ImageBackground = 'auto' | 'opaque' | 'transparent';

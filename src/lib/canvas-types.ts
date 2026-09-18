@@ -32,6 +32,10 @@ export type CanvasTaskData = {
     sourceFilenames: string[];
     /** Display-only: name of the mask that was applied when the node last ran. */
     maskFileName: string | null;
+    /** Set when a referenced source image is gone from disk (e.g. deleted from the history). */
+    sourceMissing?: boolean;
+    /** Set when every image this node produced is gone from disk. */
+    resultMissing?: boolean;
     images: CanvasTaskImage[];
     status: CanvasTaskStatus;
     error: string | null;
@@ -44,7 +48,8 @@ export type CanvasTaskData = {
 export const DEFAULT_TASK_PARAMS: CanvasTaskParams = {
     model: 'gpt-image-2.5-flare',
     n: 1,
-    size: 'square',
+    // Matches the list view's default: let the model pick, instead of forcing a 2048x2048 render.
+    size: 'auto',
     customWidth: 1024,
     customHeight: 1024,
     quality: 'medium',

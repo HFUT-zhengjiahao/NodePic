@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { CanvasTaskData, CanvasTaskParams } from '@/lib/canvas-types';
 import { useI18n } from '@/lib/i18n';
-import { GPT_IMAGE_MODELS, type GptImageModel } from '@/lib/models';
+import { GPT_IMAGE_MODELS, MAX_EDIT_IMAGES, type GptImageModel } from '@/lib/models';
 import { getPresetDimensions, type SizePreset } from '@/lib/size-utils';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import {
@@ -73,6 +73,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
 
     const isRunning = data.status === 'running';
     const firstImage = data.images[0];
+    const hasImage = !!firstImage && !data.resultMissing;
     const isEdit = data.kind === 'edit';
     // A mask describes what the model may repaint, so it belongs to the *source* picture of an edit
     // node — never to that node's own result.
@@ -148,9 +149,16 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                             <span className='text-[11px] text-slate-500'>+{data.sourceFilenames.length - 4}</span>
                         )}
                     </div>
-                    {data.maskFileName && (
+                    {data.maskFileName && !data.sourceMissing && (
                         <span className='ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700'>
                             {t('Mask applied')}
+                        </span>
+                    )}
+                    {data.sourceMissing && (
+                        <span
+                            className='ml-auto rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700'
+                            title={t('The file was deleted from the history, so this node cannot run.')}>
+                            {t('Source image missing')}
                         </span>
                     )}
                 </div>
@@ -163,7 +171,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         <Loader2 className='h-6 w-6 animate-spin text-indigo-500' />
                         <span className='text-xs'>{t('Generating…')}</span>
                     </div>
-                ) : firstImage ? (
+                ) : hasImage && firstImage ? (
                     <>
                         <Image
                             src={firstImage.path}
@@ -179,6 +187,20 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                             </div>
                         )}
                     </>
+                ) : data.resultMissing ? (
+                    <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
+                        <ImageOff className='h-6 w-6 text-amber-500' />
+                        <span className='text-[11px] leading-relaxed text-amber-700'>
+                            {t('This node’s image file was deleted. Run it again to recreate the picture.')}
+                        </span>
+                    </div>
+                ) : data.sourceMissing ? (
+                    <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
+                        <ImageOff className='h-6 w-6 text-red-400' />
+                        <span className='text-[11px] leading-relaxed text-red-600'>
+                            {t('A source image of this node no longer exists. Re-run its parent node or connect a new source.')}
+                        </span>
+                    </div>
                 ) : data.status === 'error' ? (
                     <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
                         <ImageOff className='h-6 w-6 text-red-400' />
@@ -191,7 +213,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                     </div>
                 )}
 
-                {firstImage && (
+                {hasImage && firstImage && (
                     <div className='absolute top-2 right-2 flex gap-1 opacity-85 transition-opacity hover:opacity-100'>
                         <button
                             type='button'
@@ -235,7 +257,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         type='button'
                         variant='outline'
                         size='sm'
-                        disabled={!firstImage || isRunning}
+                        disabled={!hasImage || isRunning}
                         title={t('Use as source for edit')}
                         onClick={() => actions.onDeriveEdit(id)}
                         className='nodrag h-8 border-slate-200 px-2 text-[12px] text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
@@ -336,7 +358,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
             <Handle
                 type='source'
                 position={Position.Right}
-                title='拖动我连线到另一个节点'
+                title={t('Drag to connect this node to another')}
                 className='!h-3.5 !w-3.5 !border-2 !border-white !bg-indigo-500 transition-transform hover:!scale-125'
             />
         </div>

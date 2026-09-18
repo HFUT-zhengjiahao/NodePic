@@ -38,7 +38,13 @@ type HistoryPanelProps = {
     onSelectImage: (item: HistoryMetadata) => void;
     onClearHistory: () => void;
     getImageSrc: (filename: string) => string | undefined;
-    onDeleteItemRequest: (item: HistoryMetadata) => void;
+    onDeleteItemRequest: (item: HistoryMetadata, referenceWarning: string | null) => void;
+    /** Returns a warning when the entry still feeds canvas nodes, otherwise null. */
+    describeReferenceWarning: (item: HistoryMetadata) => string | null;
+    /** Set while the confirmation dialog is open for an entry the canvas still references. */
+    referenceWarning: string | null;
+    /** Removes generated files that nothing references any more. */
+    onCleanupUnusedImages: () => void;
     itemPendingDeleteConfirmation: HistoryMetadata | null;
     onConfirmDeletion: () => void;
     onCancelDeletion: () => void;
@@ -78,6 +84,9 @@ function HistoryPanelImpl({
     onClearHistory,
     getImageSrc,
     onDeleteItemRequest,
+    describeReferenceWarning,
+    referenceWarning,
+    onCleanupUnusedImages,
     itemPendingDeleteConfirmation,
     onConfirmDeletion,
     onCancelDeletion,
@@ -193,15 +202,27 @@ function HistoryPanelImpl({
                         </Dialog>
                     )}
                 </div>
-                {history.length > 0 && (
+                <div className='flex items-center gap-1'>
+                    {history.length > 0 && (
+                        <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={onClearHistory}
+                            className='h-auto rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900'>
+                            {t('Clear')}
+                        </Button>
+                    )}
                     <Button
+                        type='button'
                         variant='ghost'
                         size='sm'
-                        onClick={onClearHistory}
+                        title={t('Delete generated files that no history entry or canvas node uses')}
+                        onClick={onCleanupUnusedImages}
                         className='h-auto rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900'>
-                        {t('Clear')}
+                        <Trash2 className='mr-1 h-3.5 w-3.5' />
+                        {t('Clean up files')}
                     </Button>
-                )}
+                </div>
             </CardHeader>
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {history.length === 0 ? (
@@ -486,7 +507,10 @@ function HistoryPanelImpl({
                                                         className='h-6 w-6 border border-slate-200 bg-white text-slate-400 hover:border-red-200 hover:bg-red-50 hover:text-red-600'
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            onDeleteItemRequest(item);
+                                                            onDeleteItemRequest(
+                                                                item,
+                                                                describeReferenceWarning(item)
+                                                            );
                                                         }}
                                                         aria-label={t('Delete history item')}>
                                                         <Trash2 size={14} />
@@ -503,6 +527,11 @@ function HistoryPanelImpl({
                                                                 { count: item.images.length }
                                                             )}
                                                         </DialogDescription>
+                                                        {referenceWarning && itemPendingDeleteConfirmation?.timestamp === item.timestamp && (
+                                                            <div className='mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700'>
+                                                                {referenceWarning}
+                                                            </div>
+                                                        )}
                                                     </DialogHeader>
                                                     <div className='flex items-center space-x-2 py-2'>
                                                         <Checkbox

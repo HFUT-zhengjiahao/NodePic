@@ -6,9 +6,12 @@ import { TaskNode, TaskNodeActionsProvider, type TaskNodeActions, type TaskNodeT
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { createTaskData, type CanvasTaskData, type CanvasTaskParams } from '@/lib/canvas-types';
+import { db, type MaskRecord } from '@/lib/db';
+import { MAX_EDIT_IMAGES } from '@/lib/models';
 import { runCanvasTask } from '@/lib/canvas-run';
 import { calculateApiCost } from '@/lib/cost-utils';
 import { useI18n } from '@/lib/i18n';
+import { useLiveQuery } from 'dexie-react-hooks';
 import {
     Background,
     BackgroundVariant,
@@ -30,8 +33,7 @@ import { Brush, ImagePlus, LayoutGrid, Plus, Sparkles, Trash2 } from 'lucide-rea
 import Image from 'next/image';
 import * as React from 'react';
 
-const STORAGE_KEY = 'gptImageCanvas';
-const HINT_KEY = 'gptImageCanvasHintDismissed';
+import { CANVAS_HINT_KEY as HINT_KEY, CANVAS_STORAGE_KEY as STORAGE_KEY } from '@/lib/canvas-refs';
 
 /** Shared look for every lineage edge: smooth left-to-right curve with an arrow head. */
 const EDGE_STYLE = { stroke: '#a5b4fc', strokeWidth: 2 } as const;
@@ -58,12 +60,11 @@ function loadSnapshot(): CanvasSnapshot {
         const nodes = Array.isArray(parsed.nodes)
             ? parsed.nodes.map((node) => ({
                   ...node,
-                  // A node interrupted by a reload must not stay stuck in the "running" state, and a mask
-                  // File cannot be persisted, so its badge is cleared with it.
+                  // A node interrupted by a reload must not stay stuck in the "running" state.
+                  // (Masks are reconciled against IndexedDB once it has loaded.)
                   data: {
                       ...node.data,
-                      status: node.data.status === 'running' ? 'idle' : node.data.status,
-                      maskFileName: null
+                      status: node.data.status === 'running' ? 'idle' : node.data.status
                   }
               }))
             : [];
@@ -83,7 +84,7 @@ function loadSnapshot(): CanvasSnapshot {
 
 function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
     const { t } = useI18n();
-    const initial = React.useMemo(loadSnapshot, []);
+    const initial = React.useMemo(() => loadSnapshot(), []);
     const [nodes, setNodes, onNodesChange] = useNodesState<TaskNodeType>(initial.nodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
     const [maskTarget, setMaskTarget] = React.useState<{ nodeId: string; filename: string; path: string } | null>(null);
@@ -91,7 +92,9 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
     const { screenToFlowPosition, fitView } = useReactFlow();
 
     const nodesRef = React.useRef(nodes);
-    nodesRef.current = nodes;
+    React.useEffect(() => {
+        nodesRef.current = nodes;
+    }, [nodes]);
     const [showHint, setShowHint] = React.useState(false);
 
     React.useEffect(() => {
@@ -103,7 +106,54 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
         window.localStorage.setItem(HINT_KEY, '1');
     }, []);
 
-    const maskFiles = React.useRef(new Map<string, File>());
+    // Masks live in IndexedDB (see db.ts), so they survive a reload and stay reactive.
+    const maskRecords = useLiveQuery(() => db.masks.toArray(), []);
+    const masks = React.useMemo(() => {
+        const map = new Map<string, { file: File; filename: string }>();
+        for (const record of maskRecords ?? []) {
+            map.set(record.nodeId, {
+                file: new File([record.blob], record.filename, { type: 'image/png' }),
+                filename: record.filename
+            });
+        }
+        return map;
+    }, [maskRecords]);
+
+    const saveMask = React.useCallback(
+        async (nodeId: string, file: File | null) => {
+            try {
+                if (file) {
+                    await db.masks.put({ nodeId, blob: file, filename: file.name, updatedAt: Date.now() });
+                } else {
+                    await db.masks.delete(nodeId);
+                }
+            } catch (error) {
+                console.error('Failed to persist the mask:', error);
+            }
+            setNodes((prev) =>
+                prev.map((node) =>
+                    node.id === nodeId ? { ...node, data: { ...node.data, maskFileName: file ? file.name : null } } : node
+                )
+            );
+        },
+        [setNodes]
+    );
+
+    // Once the stored masks are known, make the node badges match them: a mask painted before the
+    // reload shows up again, and one that was deleted elsewhere stops claiming to be applied.
+    React.useEffect(() => {
+        if (!maskRecords) return;
+        setNodes((prev) => {
+            let changed = false;
+            const next = prev.map((node) => {
+                const expected = maskRecords.find((record) => record.nodeId === node.id)?.filename ?? null;
+                if ((node.data.maskFileName ?? null) === expected) return node;
+                changed = true;
+                return { ...node, data: { ...node.data, maskFileName: expected } };
+            });
+            return changed ? next : prev;
+        });
+    }, [maskRecords, setNodes]);
     const skipFirstSave = React.useRef(true);
 
     React.useEffect(() => {
@@ -120,6 +170,57 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
         }, 400);
         return () => window.clearTimeout(timer);
     }, [nodes, edges]);
+
+    /**
+     * A history delete can remove a file the canvas still points at. Verify every referenced source
+     * once per change set, so a dead reference shows up as an explicit warning instead of a blank
+     * thumbnail and a 404 on the next run.
+     */
+    const sourceSignature = nodes
+        .map((node) => [...node.data.sourceFilenames, ...node.data.images.map((image) => image.filename)].join(','))
+        .join('|');
+
+    React.useEffect(() => {
+        let cancelled = false;
+        const exists = new Map<string, boolean>();
+        const check = async () => {
+            const verify = async (filename: string) => {
+                if (exists.has(filename)) return;
+                try {
+                    const response = await fetch(`/api/image/${encodeURIComponent(filename)}`, {
+                        method: 'GET',
+                        cache: 'no-store'
+                    });
+                    exists.set(filename, response.ok);
+                    await response.body?.cancel();
+                } catch {
+                    exists.set(filename, false);
+                }
+            };
+
+            for (const node of nodesRef.current) {
+                for (const filename of node.data.sourceFilenames) await verify(filename);
+                for (const image of node.data.images) await verify(image.filename);
+            }
+            if (cancelled) return;
+
+            let changed = false;
+            const next = nodesRef.current.map((node) => {
+                const sourceMissing = node.data.sourceFilenames.some((filename) => exists.get(filename) === false);
+                // Only claim a result is gone once every image of the batch is confirmed missing.
+                const resultMissing =
+                    node.data.images.length > 0 && node.data.images.every((image) => exists.get(image.filename) === false);
+                if (sourceMissing === !!node.data.sourceMissing && resultMissing === !!node.data.resultMissing) return node;
+                changed = true;
+                return { ...node, data: { ...node.data, sourceMissing, resultMissing } };
+            });
+            if (changed) setNodes(next);
+        };
+        void check();
+        return () => {
+            cancelled = true;
+        };
+    }, [sourceSignature, setNodes]);
 
     const patchNode = React.useCallback(
         (id: string, patch: Partial<CanvasTaskData>) => {
@@ -144,6 +245,13 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
             const node = nodesRef.current.find((item) => item.id === id);
             if (!node) return;
             if (!node.data.prompt.trim()) return;
+            if (node.data.sourceMissing) {
+                patchNode(id, {
+                    status: 'error',
+                    error: t('A source image of this node no longer exists. Re-run its parent node or connect a new source.')
+                });
+                return;
+            }
 
             const startedAt = Date.now();
             patchNode(id, { status: 'running', error: null });
@@ -154,7 +262,7 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                     prompt: node.data.prompt,
                     params: node.data.params,
                     sourceFilenames: node.data.sourceFilenames,
-                    maskFile: maskFiles.current.get(id) ?? null,
+                    maskFile: masks.get(id)?.file ?? null,
                     passwordHash
                 });
                 const durationMs = Date.now() - startedAt;
@@ -182,7 +290,7 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                 });
             }
         },
-        [onTaskComplete, passwordHash, patchNode, t]
+        [masks, onTaskComplete, passwordHash, patchNode, t]
     );
 
     /** Places a new node in free space to the right of its parent. */
@@ -274,7 +382,7 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                     if (node.id !== target) return node;
                     const sourceFilenames = node.data.sourceFilenames.includes(image.filename)
                         ? node.data.sourceFilenames
-                        : [...node.data.sourceFilenames, image.filename].slice(0, 16);
+                        : [...node.data.sourceFilenames, image.filename].slice(0, MAX_EDIT_IMAGES);
                     return { ...node, data: { ...node.data, kind: 'edit', sourceFilenames } };
                 })
             );
@@ -352,7 +460,7 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
     const deleteNode = React.useCallback(
         (id: string) => {
             if (!window.confirm(t('Delete this node? This cannot be undone.'))) return;
-            maskFiles.current.delete(id);
+            void db.masks.delete(id).catch((error) => console.error('Failed to drop the node mask:', error));
             setNodes((prev) => prev.filter((node) => node.id !== id));
             setEdges((prev) => prev.filter((edge) => edge.source !== id && edge.target !== id));
         },
@@ -361,7 +469,7 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
 
     const clearCanvas = React.useCallback(() => {
         if (!window.confirm(t('Clear the whole canvas? This cannot be undone.'))) return;
-        maskFiles.current.clear();
+        void db.masks.clear().catch((error) => console.error('Failed to clear masks:', error));
         setNodes([]);
         setEdges([]);
     }, [setEdges, setNodes, t]);
@@ -490,15 +598,8 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                     {maskTarget && (
                         <MaskTargetEditor
                             target={maskTarget}
-                            hasMask={maskFiles.current.has(maskTarget.nodeId)}
-                            onMaskChange={(file) => {
-                                if (file) {
-                                    maskFiles.current.set(maskTarget.nodeId, file);
-                                } else {
-                                    maskFiles.current.delete(maskTarget.nodeId);
-                                }
-                                patchNode(maskTarget.nodeId, { maskFileName: file ? file.name : null });
-                            }}
+                            hasMask={masks.has(maskTarget.nodeId)}
+                            onMaskChange={(file) => void saveMask(maskTarget.nodeId, file)}
                         />
                     )}
                 </DialogContent>

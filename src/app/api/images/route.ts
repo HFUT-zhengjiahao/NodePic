@@ -102,7 +102,40 @@ function sha256(data: string): string {
     return crypto.createHash('sha256').update(data).digest('hex');
 }
 
+/**
+ * Image generation is slow and metered upstream, and the canvas lets several nodes run at once.
+ * Queue the surplus instead of letting N requests hit the provider simultaneously.
+ */
+const MAX_CONCURRENT_REQUESTS = 2;
+let activeRequests = 0;
+const pendingSlots: Array<() => void> = [];
+
+async function acquireSlot(): Promise<() => void> {
+    if (activeRequests >= MAX_CONCURRENT_REQUESTS) {
+        console.log(`All ${MAX_CONCURRENT_REQUESTS} generation slots are busy — queueing this request.`);
+        await new Promise<void>((resolve) => pendingSlots.push(resolve));
+    }
+    activeRequests += 1;
+
+    let released = false;
+    return () => {
+        if (released) return;
+        released = true;
+        activeRequests -= 1;
+        pendingSlots.shift()?.();
+    };
+}
+
 export async function POST(request: NextRequest) {
+    const releaseSlot = await acquireSlot();
+    try {
+        return await handleImageRequest(request);
+    } finally {
+        releaseSlot();
+    }
+}
+
+async function handleImageRequest(request: NextRequest) {
     console.log('Received POST request to /api/images');
 
     if (!process.env.OPENAI_API_KEY) {
@@ -161,6 +194,10 @@ export async function POST(request: NextRequest) {
 
         const imageParams = readImageParams(formData);
         const fileExtension = imageParams.output_format;
+
+        // `response=meta` (canvas nodes) skips echoing base64 back: with filesystem storage the client
+        // only needs the filename and fetches the picture from /api/image/<filename>.
+        const metaOnlyResponse = formData.get('response') === 'meta' && effectiveStorageMode === 'fs';
 
         // Check for streaming mode
         const streamEnabled = formData.get('stream') === 'true';
@@ -453,10 +490,10 @@ export async function POST(request: NextRequest) {
                 } else {
                 }
 
-                const imageResult: { filename: string; b64_json: string; path?: string; output_format: string } = {
+                const imageResult: { filename: string; b64_json?: string; path?: string; output_format: string } = {
                     filename: filename,
-                    b64_json: imageData.b64_json,
-                    output_format: fileExtension
+                    output_format: fileExtension,
+                    ...(metaOnlyResponse ? {} : { b64_json: imageData.b64_json })
                 };
 
                 if (effectiveStorageMode === 'fs') {
@@ -469,7 +506,11 @@ export async function POST(request: NextRequest) {
 
         console.log(`All images processed. Mode: ${effectiveStorageMode}`);
 
-        return NextResponse.json({ images: savedImagesData, usage: result.usage });
+        return NextResponse.json({
+            images: savedImagesData,
+            usage: result.usage,
+            ...(metaOnlyResponse ? { metaOnly: true } : {})
+        });
     } catch (error: unknown) {
         console.error('Error in /api/images:', error);
 

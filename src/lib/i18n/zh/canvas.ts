@@ -32,5 +32,18 @@ export const canvas: Record<string, string> = {
     'Shift + double-click adds an edit node': 'Shift + 双击 = 新建编辑节点',
     'Got it': '知道了',
     'The source node has no image yet — run it first.': '源节点还没有出图，先运行它。',
+    'Source image missing': '源图已丢失',
+    'The file was deleted from the history, so this node cannot run.': '该文件已从历史记录中删除，这个节点无法再运行。',
+    'A source image of this node no longer exists. Re-run its parent node or connect a new source.':
+        '这个节点的源图已不存在，请重跑它的上游节点，或重新连接一个源图。',
+    'Drag to connect this node to another': '拖动我连线到另一个节点',
+    'Clean up files': '清理未引用图片',
+    'Delete generated files that no history entry or canvas node uses': '删除历史记录和画布都没有引用的图片文件',
+    'Disk cleanup only applies in filesystem storage mode.': '只有文件系统存储模式才需要清理磁盘。',
+    'Nothing to clean up — every stored image is still referenced.': '没有可清理的文件，磁盘上的图片都还在被引用。',
+    'Delete {count} image file(s) that nothing references any more? This frees about {size} MB.':
+        '删除 {count} 个已无人引用的图片文件？可释放约 {size} MB。',
+    'Removed {count} file(s), freeing {size} MB.': '已删除 {count} 个文件，释放 {size} MB。',
+    'This node’s image file was deleted. Run it again to recreate the picture.': '这个节点的图片文件已被删除，重新运行即可再次生成。',
     'An unexpected error occurred.': '出错了，请重试。'
 };

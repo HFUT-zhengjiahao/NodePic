@@ -2,6 +2,7 @@
 
 import { EditingForm, type EditingFormData } from '@/components/editing-form';
 import { CanvasBoard } from '@/components/canvas/canvas-board';
+import { collectCanvasFilenames, countCanvasReferences, findCanvasReferences, readStoredCanvas } from '@/lib/canvas-refs';
 import { GenerationForm, type GenerationFormData } from '@/components/generation-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
@@ -101,23 +102,39 @@ export default function HomePage() {
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
     // Canvas is the primary workspace; the classic form lives behind the "List" switch.
     const [viewMode, setViewMode] = React.useState<'canvas' | 'list'>('canvas');
+    const [deleteReferenceWarning, setDeleteReferenceWarning] = React.useState<string | null>(null);
     const [canvasMounted, setCanvasMounted] = React.useState(false);
 
-    React.useEffect(() => {
-        queueMicrotask(() => {
-            const stored = window.localStorage.getItem('gptImageViewMode');
-            if (stored === 'list' || stored === 'canvas') {
-                setViewMode(stored);
-            }
-        });
+    /** Switching views is a user action: persist the choice and keep the canvas mounted once opened. */
+    const selectViewMode = React.useCallback((next: 'canvas' | 'list') => {
+        setViewMode(next);
+        if (next === 'canvas') {
+            setCanvasMounted(true);
+        }
+        try {
+            window.localStorage.setItem('gptImageViewMode', next);
+        } catch (error) {
+            console.warn('Could not persist the view mode:', error);
+        }
     }, []);
 
     React.useEffect(() => {
-        if (viewMode === 'canvas') {
-            setCanvasMounted(true);
-        }
-        window.localStorage.setItem('gptImageViewMode', viewMode);
-    }, [viewMode]);
+        // Deferred so restoring the preference never cascades a render inside the effect body.
+        queueMicrotask(() => {
+            let stored: string | null = null;
+            try {
+                stored = window.localStorage.getItem('gptImageViewMode');
+            } catch (error) {
+                console.warn('Could not read the stored view mode:', error);
+            }
+            if (stored === 'list' || stored === 'canvas') {
+                setViewMode(stored);
+                if (stored === 'canvas') {
+                    setCanvasMounted(true);
+                }
+            }
+        });
+    }, []);
 
     /** Lets canvas nodes contribute to the same history the list view shows. */
     const handleCanvasTaskComplete = React.useCallback((entry: HistoryMetadata) => {
@@ -333,7 +350,7 @@ export default function HomePage() {
         return () => {
             window.removeEventListener('paste', handlePaste);
         };
-    }, [mode, editImageFiles.length]);
+    }, [mode, editImageFiles.length, t]);
 
     async function sha256Client(text: string): Promise<string> {
         const encoder = new TextEncoder();
@@ -669,8 +686,12 @@ export default function HomePage() {
     const handleClearHistory = React.useCallback(async () => {
         const confirmationMessage =
             effectiveStorageModeClient === 'indexeddb'
-                ? 'Are you sure you want to clear the entire image history? In IndexedDB mode, this will also permanently delete all stored images. This cannot be undone.'
-                : 'Are you sure you want to clear the entire image history? This cannot be undone.';
+                ? t(
+                      'Are you sure you want to clear the entire image history? In IndexedDB mode, this will also permanently delete all stored images. This cannot be undone.'
+                  )
+                : t(
+                      'Are you sure you want to clear the entire image history? Image files that no canvas node uses will be deleted from disk too. This cannot be undone.'
+                  );
 
         if (window.confirm(confirmationMessage)) {
             setHistory([]);
@@ -685,13 +706,85 @@ export default function HomePage() {
                     await db.images.clear();
                     blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
                     blobUrlCacheRef.current.clear();
+                } else {
+                    // The history no longer references these files; anything the canvas still uses stays.
+                    const keep = collectCanvasFilenames(readStoredCanvas());
+                    await fetch('/api/images-cleanup', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            keep: Array.from(keep),
+                            ...(isPasswordRequiredByBackend && clientPasswordHash ? { passwordHash: clientPasswordHash } : {})
+                        })
+                    });
                 }
             } catch (e) {
                 console.error('Failed during history clearing:', e);
                 setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
             }
         }
-    }, []);
+    }, [clientPasswordHash, isPasswordRequiredByBackend, t]);
+
+    /** Deletes generated files that neither the history nor the canvas references any more. */
+    const handleCleanupUnusedImages = React.useCallback(async () => {
+        if (effectiveStorageModeClient !== 'fs') {
+            window.alert(t('Disk cleanup only applies in filesystem storage mode.'));
+            return;
+        }
+
+        const keep = collectCanvasFilenames(readStoredCanvas());
+        history.forEach((entry) => entry.images?.forEach((image) => keep.add(image.filename)));
+
+        const payload = {
+            keep: Array.from(keep),
+            ...(isPasswordRequiredByBackend && clientPasswordHash ? { passwordHash: clientPasswordHash } : {})
+        };
+
+        try {
+            const preview = await fetch('/api/images-cleanup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...payload, dryRun: true })
+            });
+            const previewResult = await preview.json();
+            if (!preview.ok) throw new Error(previewResult.error || `Cleanup failed with status ${preview.status}`);
+
+            if (!previewResult.deleted) {
+                window.alert(t('Nothing to clean up — every stored image is still referenced.'));
+                return;
+            }
+
+            const megabytes = (previewResult.freedBytes / 1024 / 1024).toFixed(1);
+            if (
+                !window.confirm(
+                    t(
+                        'Delete {count} image file(s) that nothing references any more? This frees about {size} MB.',
+                        { count: previewResult.deleted, size: megabytes }
+                    )
+                )
+            ) {
+                return;
+            }
+
+            const applied = await fetch('/api/images-cleanup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const appliedResult = await applied.json();
+            if (!applied.ok) throw new Error(appliedResult.error || `Cleanup failed with status ${applied.status}`);
+
+            window.alert(
+                t('Removed {count} file(s), freeing {size} MB.', {
+                    count: appliedResult.deleted,
+                    size: (appliedResult.freedBytes / 1024 / 1024).toFixed(1)
+                })
+            );
+        } catch (error) {
+            console.error('Image cleanup failed:', error);
+            setError(error instanceof Error ? error.message : t('An unexpected error occurred.'));
+        }
+    }, [clientPasswordHash, history, isPasswordRequiredByBackend, t]);
 
     const handleSendToEdit = async (filename: string) => {
         if (isSendingToEdit) return;
@@ -806,15 +899,32 @@ export default function HomePage() {
     );
 
     const handleRequestDeleteItem = React.useCallback(
-        (item: HistoryMetadata) => {
-            if (!skipDeleteConfirmation) {
-                setDialogCheckboxStateSkipConfirm(skipDeleteConfirmation);
-                setItemToDeleteConfirm(item);
-            } else {
-                executeDeleteItem(item);
+        (item: HistoryMetadata, referenceWarning: string | null) => {
+            // A file the canvas still points at always gets a confirmation, even with "don't ask again".
+            const mustConfirm = !skipDeleteConfirmation || Boolean(referenceWarning);
+            if (!mustConfirm) {
+                void executeDeleteItem(item);
+                return;
             }
+            setDialogCheckboxStateSkipConfirm(skipDeleteConfirmation);
+            setDeleteReferenceWarning(referenceWarning);
+            setItemToDeleteConfirm(item);
         },
         [skipDeleteConfirmation, executeDeleteItem]
+    );
+
+    /** Warns when a history entry still feeds canvas nodes, so the user knows what breaks. */
+    const describeCanvasReferences = React.useCallback(
+        (item: HistoryMetadata): string | null => {
+            const referenced = findCanvasReferences(item.images.map((image) => image.filename));
+            if (referenced.length === 0) return null;
+            const nodeCount = referenced.reduce((total, filename) => total + countCanvasReferences(filename), 0);
+            return t(
+                'This entry still feeds {count} canvas node(s). Deleting it leaves those nodes without their source image.',
+                { count: nodeCount }
+            );
+        },
+        [t]
     );
 
     const handleConfirmDeletion = React.useCallback(() => {
@@ -834,7 +944,7 @@ export default function HomePage() {
                 <div className='flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm'>
                     <button
                         type='button'
-                        onClick={() => setViewMode('canvas')}
+                        onClick={() => selectViewMode('canvas')}
                         aria-pressed={viewMode === 'canvas'}
                         className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] transition-colors ${
                             viewMode === 'canvas'
@@ -846,7 +956,7 @@ export default function HomePage() {
                     </button>
                     <button
                         type='button'
-                        onClick={() => setViewMode('list')}
+                        onClick={() => selectViewMode('list')}
                         aria-pressed={viewMode === 'list'}
                         className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] transition-colors ${
                             viewMode === 'list'
@@ -1000,6 +1110,9 @@ export default function HomePage() {
                         onClearHistory={handleClearHistory}
                         getImageSrc={getImageSrc}
                         onDeleteItemRequest={handleRequestDeleteItem}
+                        describeReferenceWarning={describeCanvasReferences}
+                        referenceWarning={deleteReferenceWarning}
+                        onCleanupUnusedImages={handleCleanupUnusedImages}
                         itemPendingDeleteConfirmation={itemToDeleteConfirm}
                         onConfirmDeletion={handleConfirmDeletion}
                         onCancelDeletion={handleCancelDeletion}
