@@ -75,6 +75,10 @@ const EDGE_STYLE = { stroke: '#a5b4fc', strokeWidth: 2 } as const;
 const EDGE_MARKER = { type: MarkerType.ArrowClosed, color: '#a5b4fc', width: 18, height: 18 } as const;
 const NODE_GAP_X = 470;
 const NODE_GAP_Y = 120;
+/** Rendered node width; used to keep new nodes inside the visible area. */
+const NODE_WIDTH = 380;
+/** Rough node height, for the same reason. */
+const NODE_HEIGHT_FALLBACK = 340;
 
 type CanvasSnapshot = {
     nodes: TaskNodeType[];
@@ -708,16 +712,69 @@ function CanvasFlow({
     }, [runNode]);
 
     /** Places a new node in free space to the right of its parent. */
-    const findFreePosition = React.useCallback((originX: number, originY: number) => {
-        let x = originX + NODE_GAP_X;
-        let y = originY;
-        const taken = (px: number, py: number) =>
-            nodesRef.current.some((node) => Math.abs(node.position.x - px) < 300 && Math.abs(node.position.y - py) < 120);
-        while (taken(x, y)) {
-            y += NODE_GAP_Y;
-        }
-        return { x, y };
-    }, []);
+    /**
+     * Finds a free spot for a new node, preferring one the user can already see.
+     *
+     * The board is only nudged as a last resort (see `revealNode`), so a spot inside the current view
+     * is worth searching for: right of the parent first, since lineage reads left to right, then below
+     * it, then further out.
+     */
+    const findFreePosition = React.useCallback(
+        (originX: number, originY: number, parentHeight = NODE_HEIGHT_FALLBACK) => {
+            const element = boardRef.current;
+            const visible = element
+                ? (() => {
+                      const topLeft = screenToFlowPosition({ x: 0, y: 0 });
+                      const bottomRight = screenToFlowPosition({
+                          x: element.clientWidth,
+                          y: element.clientHeight
+                      });
+                      return { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y };
+                  })()
+                : null;
+
+            const taken = (px: number, py: number) =>
+                nodesRef.current.some(
+                    (node) => Math.abs(node.position.x - px) < 300 && Math.abs(node.position.y - py) < 120
+                );
+            // Wholly visible beats partly visible beats off-screen: a new node should appear where the
+            // user is already looking, otherwise the board would have to be nudged to show it.
+            const fullyVisible = (px: number, py: number) =>
+                !visible ||
+                (px >= visible.left &&
+                    py >= visible.top &&
+                    px + NODE_WIDTH <= visible.right &&
+                    py + parentHeight <= visible.bottom);
+            const partlyVisible = (px: number, py: number) =>
+                !visible ||
+                (px + NODE_WIDTH > visible.left &&
+                    px < visible.right &&
+                    py + 80 > visible.top &&
+                    py < visible.bottom);
+
+            const candidates: Array<{ x: number; y: number }> = [];
+            for (let step = 1; step <= 6; step += 1) {
+                candidates.push({ x: originX + NODE_GAP_X * step, y: originY });
+                candidates.push({ x: originX, y: originY + NODE_GAP_Y * step });
+                candidates.push({ x: originX + NODE_GAP_X, y: originY + NODE_GAP_Y * step });
+                candidates.push({ x: originX - NODE_GAP_X, y: originY + NODE_GAP_Y * step });
+                candidates.push({ x: originX, y: originY - (parentHeight + NODE_GAP_Y) * step });
+            }
+            const free = candidates.filter((spot) => !taken(spot.x, spot.y));
+            const visibleFree =
+                free.find((spot) => fullyVisible(spot.x, spot.y)) ?? free.find((spot) => partlyVisible(spot.x, spot.y));
+            if (visibleFree) return visibleFree;
+
+            // Nothing on screen is free: walk down the column of the parent and let the caller reveal it.
+            let x = originX + NODE_GAP_X;
+            let y = originY;
+            while (taken(x, y)) {
+                y += NODE_GAP_Y;
+            }
+            return { x, y };
+        },
+        [screenToFlowPosition]
+    );
 
     /**
      * Collapsing the sidebar widens the board, and React Flow keeps the top-left corner fixed — so the
@@ -756,6 +813,48 @@ function CanvasFlow({
         [nodeDefaults?.model, nodeDefaults?.quality, nodeDefaults?.size]
     );
 
+    /**
+     * Brings a freshly created node into view **without touching the zoom**.
+     *
+     * Creating content should never re-frame the board: `fitView` after every "derive edit" moved and
+     * rescaled the canvas under the user, which is disorienting when the new node is already visible —
+     * and it always is, because it is placed right next to its source or at the centre of the view.
+     * Only when the node would land off-screen is the board nudged by the minimum amount.
+     */
+    const revealNode = React.useCallback(
+        (nodeId: string) => {
+            window.setTimeout(() => {
+                const element = boardRef.current;
+                const node = nodesRef.current.find((candidate) => candidate.id === nodeId);
+                if (!element || !node) return;
+
+                const viewport = getViewport();
+                const width = (node.measured?.width ?? NODE_WIDTH) * viewport.zoom;
+                const height = (node.measured?.height ?? NODE_HEIGHT_FALLBACK) * viewport.zoom;
+                const left = node.position.x * viewport.zoom + viewport.x;
+                const top = node.position.y * viewport.zoom + viewport.y;
+                const margin = 24;
+
+                // Already (at least partly) on screen? Then leave the camera alone — moving it is what
+                // the user objected to, and a partially visible node is enough of a cue.
+                const overlapsView =
+                    left + width > 0 && left < element.clientWidth && top + height > 0 && top < element.clientHeight;
+                if (overlapsView) return;
+
+                let dx = 0;
+                let dy = 0;
+                if (left < margin) dx = margin - left;
+                else if (left + width > element.clientWidth - margin) dx = element.clientWidth - margin - (left + width);
+                if (top < margin) dy = margin - top;
+                else if (top + height > element.clientHeight - margin) dy = element.clientHeight - margin - (top + height);
+
+                if (dx === 0 && dy === 0) return;
+                void setViewport({ x: viewport.x + dx, y: viewport.y + dy, zoom: viewport.zoom }, { duration: 200 });
+            }, 140);
+        },
+        [getViewport, setViewport]
+    );
+
     const addNode = React.useCallback(
         (kind: 'generate' | 'edit', position?: { x: number; y: number }) => {
             const id = `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -770,14 +869,10 @@ function CanvasFlow({
                     selected: false
                 } as TaskNodeType
             ]);
-            // Only re-frame the viewport when the node was created from the toolbar; a double-click
-            // placement should stay exactly where the user pointed.
-            if (!position) {
-                window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.5 }), 80);
-            }
+            revealNode(id);
             return id;
         },
-        [fitView, makeTaskData, screenToFlowPosition, setNodes]
+        [makeTaskData, revealNode, screenToFlowPosition, setNodes]
     );
 
     const deriveEditNode = React.useCallback(
@@ -788,7 +883,11 @@ function CanvasFlow({
             if (!parent || !image) return;
 
             const newId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-            const position = findFreePosition(parent.position.x, parent.position.y);
+            const position = findFreePosition(
+                parent.position.x,
+                parent.position.y,
+                parent.measured?.height ?? NODE_HEIGHT_FALLBACK
+            );
             setNodes((prev) => [
                 ...prev,
                 {
@@ -800,9 +899,9 @@ function CanvasFlow({
                 } as TaskNodeType
             ]);
             // The connecting line is derived from the new node's sourceFilenames.
-            window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.5 }), 80);
+            revealNode(newId);
         },
-        [findFreePosition, fitView, makeTaskData, setNodes]
+        [findFreePosition, makeTaskData, revealNode, setNodes]
     );
 
     /** True when wiring `source` into `target` would close a loop (target is already upstream). */
