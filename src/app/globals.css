@@ -134,3 +134,10 @@
 .canvas-shell .react-flow__controls {
   z-index: 5;
 }
+
+/* Keep the React Flow attribution inside the rounded canvas container. */
+.canvas-shell .react-flow__attribution {
+  right: 10px;
+  bottom: 6px;
+  border-radius: 4px;
+}

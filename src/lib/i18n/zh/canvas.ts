@@ -6,8 +6,6 @@ export const canvas: Record<string, string> = {
     'New edit node': '新建编辑节点',
     'Fit view': '适应视图',
     'Clear canvas': '清空画布',
-    'Clear the whole canvas? This cannot be undone.': '确定清空整个画布吗？此操作无法撤销。',
-    'Delete this node? This cannot be undone.': '确定删除这个节点吗？此操作无法撤销。',
     'Delete node': '删除节点',
     'Source Image(s)': '源图',
     'None yet — click “Use as source” on another node': '还没有源图 —— 在别的节点上点「以此为源图」',
@@ -20,7 +18,6 @@ export const canvas: Record<string, string> = {
         '先新建一个生成节点出图，再点节点上的「派生编辑」，就会长出一个带源图的编辑节点。',
     'Expand': '放大查看',
     'Download': '下载',
-    'images': '张图片',
     'Show parameters': '显示参数',
     'Hide parameters': '隐藏参数',
     'Generating…': '生成中…',
@@ -37,13 +34,7 @@ export const canvas: Record<string, string> = {
     'A source image of this node no longer exists. Re-run its parent node or connect a new source.':
         '这个节点的源图已不存在，请重跑它的上游节点，或重新连接一个源图。',
     'Drag to connect this node to another': '拖动我连线到另一个节点',
-    'Clean up files': '清理未引用图片',
-    'Delete generated files that no history entry or canvas node uses': '删除历史记录和画布都没有引用的图片文件',
-    'Disk cleanup only applies in filesystem storage mode.': '只有文件系统存储模式才需要清理磁盘。',
-    'Nothing to clean up — every stored image is still referenced.': '没有可清理的文件，磁盘上的图片都还在被引用。',
-    'Delete {count} image file(s) that nothing references any more? This frees about {size} MB.':
-        '删除 {count} 个已无人引用的图片文件？可释放约 {size} MB。',
-    'Removed {count} file(s), freeing {size} MB.': '已删除 {count} 个文件，释放 {size} MB。',
+    'Nothing to clean up — every registered image is still referenced.': '没有可清理的文件，服务端登记的图片都还在被引用。',
     'This node’s image file was deleted. Run it again to recreate the picture.': '这个节点的图片文件已被删除，重新运行即可再次生成。',
     'Clean up orphaned files on disk': '清理磁盘上的孤儿图片',
     'Delete registered image files that no history entry or canvas node uses': '删除服务端已登记、但历史记录和画布都不再引用的图片文件',
@@ -72,5 +63,9 @@ export const canvas: Record<string, string> = {
         '被连接的节点已自动变为编辑节点，并以这张图作为源图。',
     'Delete this node? You can undo this with Ctrl+Z.': '确定删除这个节点吗？可以用 Ctrl+Z 撤销。',
     'Clear the whole canvas? You can undo this with Ctrl+Z.': '确定清空整个画布吗？可以用 Ctrl+Z 撤销。',
+    'API request failed with status {status}': '请求失败（HTTP {status}）',
+    'Cleanup failed with status {status}': '清理失败（HTTP {status}）',
+    'API deletion failed with status {status}': '删除失败（HTTP {status}）',
+    'An unexpected error occurred during deletion.': '删除时出错了，请重试。',
     'An unexpected error occurred.': '出错了，请重试。'
 };

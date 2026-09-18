@@ -70,7 +70,8 @@ function loadSnapshot(): CanvasSnapshot {
                   // (Masks are reconciled against IndexedDB once it has loaded.)
                   data: {
                       ...node.data,
-                      status: node.data.status === 'running' ? 'idle' : node.data.status
+                      status:
+                          node.data.status === 'running' || node.data.status === 'queued' ? 'idle' : node.data.status
                   }
               }))
             : [];
@@ -387,7 +388,7 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
             // Only re-frame the viewport when the node was created from the toolbar; a double-click
             // placement should stay exactly where the user pointed.
             if (!position) {
-                window.setTimeout(() => fitView({ padding: 0.25, duration: 300 }), 80);
+                window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 }), 80);
             }
             return id;
         },
@@ -424,7 +425,7 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                     markerEnd: EDGE_MARKER
                 }
             ]);
-            window.setTimeout(() => fitView({ padding: 0.25, duration: 300 }), 80);
+            window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 }), 80);
         },
         [findFreePosition, fitView, setEdges, setNodes]
     );
@@ -631,7 +632,7 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
 
     return (
         <div
-            className='relative h-[calc(100vh-88px)] min-h-[520px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
+            className='relative h-[calc(100dvh-88px)] min-h-[520px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
             onDoubleClick={handleDoubleClick}>
             <div className='pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2'>
                 <Button
@@ -653,7 +654,7 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                     type='button'
                     variant='outline'
                     size='sm'
-                    onClick={() => fitView({ padding: 0.2, duration: 300 })}
+                    onClick={() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 })}
                     className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
                     <LayoutGrid className='mr-1.5 h-4 w-4' /> {t('Fit view')}
                 </Button>
@@ -672,7 +673,7 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                         variant='outline'
                         size='sm'
                         onClick={clearCanvas}
-                        className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-600'>
+                        className='pointer-events-auto border-red-200 bg-white text-red-600 shadow-sm hover:bg-red-50'>
                         <Trash2 className='mr-1.5 h-4 w-4' /> {t('Clear canvas')}
                     </Button>
                 )}
@@ -691,6 +692,7 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                     connectionLineStyle={{ stroke: '#818cf8', strokeWidth: 2 }}
                     nodeTypes={nodeTypes}
                     fitView
+                    fitViewOptions={{ padding: 0.2, minZoom: 0.85 }}
                     zoomOnDoubleClick={false}
                     minZoom={0.15}
                     maxZoom={1.6}
@@ -700,7 +702,8 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                     <MiniMap
                         pannable
                         zoomable
-                        className='!rounded-lg !border !border-slate-200 !bg-white'
+                        style={{ width: 150, height: 96 }}
+                        className='!rounded-lg !border !border-slate-200 !bg-white opacity-70 transition-opacity hover:opacity-100'
                         nodeColor='#c7d2fe'
                         maskColor='rgba(241,245,249,0.7)'
                     />

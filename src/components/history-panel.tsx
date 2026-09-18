@@ -21,11 +21,11 @@ import { cn } from '@/lib/utils';
 import {
     Copy,
     Check,
+    HardDrive,
     Layers,
     DollarSign,
     Pencil,
     Sparkles as SparklesIcon,
-    HardDrive,
     Database,
     FileImage,
     Trash2
@@ -207,7 +207,7 @@ function HistoryPanelImpl({
                             variant='ghost'
                             size='sm'
                             onClick={onClearHistory}
-                            className='h-auto rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900'>
+                            className='h-auto rounded-md px-2 py-1 font-normal text-slate-400 hover:bg-slate-100 hover:text-slate-700'>
                             {t('Clear')}
                         </Button>
                     )}
@@ -222,8 +222,8 @@ function HistoryPanelImpl({
                         }
                         disabled={cleanupDisabled}
                         onClick={onCleanupUnusedImages}
-                        className='h-auto rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
-                        <Trash2 className='mr-1 h-3.5 w-3.5' />
+                        className='ml-1 h-auto rounded-md border-l border-slate-200 px-2 py-1 pl-3 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
+                        <HardDrive className='mr-1 h-3.5 w-3.5' />
                         {t('Clean up orphaned files on disk')}
                     </Button>
                 </div>

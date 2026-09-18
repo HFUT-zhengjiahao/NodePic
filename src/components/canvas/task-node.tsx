@@ -57,7 +57,7 @@ export function useTaskNodeActions(): TaskNodeActions {
 }
 
 const selectClass =
-    'nodrag h-7 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50';
+    'nodrag h-7 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[12px] text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50';
 
 const SIZE_OPTIONS: Array<{ value: SizePreset; label: string }> = [
     { value: 'auto', label: 'Auto' },
@@ -136,15 +136,15 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
             {/* source strip (edit nodes) */}
             {isEdit && (
                 <div className='flex items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-3 py-2'>
-                    <span className='text-[11px] text-slate-500'>{t('Source Image(s)')}</span>
+                    <span className='text-[12px] text-slate-500'>{t('Source Image(s)')}</span>
                     <div className='flex items-center gap-1'>
                         {data.sourceFilenames.length === 0 && (
-                            <span className='text-[11px] text-slate-400'>{t('None yet — click “Use as source” on another node')}</span>
+                            <span className='text-[12px] text-slate-400'>{t('None yet — click “Use as source” on another node')}</span>
                         )}
                         {data.sourceFilenames.slice(0, 4).map((filename) => (
                             <span
                                 key={filename}
-                                className='group/src relative block h-8 w-8 overflow-hidden rounded border border-slate-200 bg-white'>
+                                className='group/src relative block h-10 w-10 overflow-hidden rounded border border-slate-200 bg-white'>
                                 <Image
                                     src={`/api/image/${filename}`}
                                     alt={filename}
@@ -157,40 +157,40 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                                     type='button'
                                     title={t('Remove this source image')}
                                     onClick={() => actions.onRemoveSource(id, filename)}
-                                    className='nodrag absolute top-0 right-0 hidden h-3.5 w-3.5 items-center justify-center rounded-bl bg-red-500 text-[9px] leading-none text-white group-hover/src:flex'>
+                                    className='nodrag absolute top-0 right-0 flex h-[18px] w-[18px] items-center justify-center rounded-bl-md bg-slate-900/70 text-[13px] leading-none text-white transition-colors hover:bg-red-600'>
                                     ×
                                 </button>
                             </span>
                         ))}
                         {data.sourceFilenames.length > 4 && (
-                            <span className='text-[11px] text-slate-500'>+{data.sourceFilenames.length - 4}</span>
+                            <span className='text-[12px] text-slate-500'>+{data.sourceFilenames.length - 4}</span>
                         )}
                         {data.sourceFilenames.length > 0 && (
                             <button
                                 type='button'
                                 onClick={() => actions.onClearSources(id)}
                                 title={t('Remove every source image')}
-                                className='nodrag rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-slate-100 hover:text-slate-700'>
+                                className='nodrag rounded px-1.5 py-1 text-[12px] text-slate-500 hover:bg-slate-100 hover:text-slate-800'>
                                 {t('Clear sources')}
                             </button>
                         )}
                     </div>
                     {data.maskFileName && !data.sourceMissing && (
-                        <span className='ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700'>
+                        <span className='ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700'>
                             {t('Mask applied')}
                         </span>
                     )}
                     {data.sourceMissing && (
                         <>
                             <span
-                                className='ml-auto rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700'
+                                className='ml-auto rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-700'
                                 title={t('The file was deleted from the history, so this node cannot run.')}>
                                 {t('Source image missing')}
                             </span>
                             <button
                                 type='button'
                                 onClick={() => actions.onClearSources(id)}
-                                className='nodrag rounded-full border border-red-200 bg-white px-1.5 py-0.5 text-[10px] text-red-600 hover:bg-red-50'>
+                                className='nodrag rounded-full border border-red-200 bg-white px-1.5 py-0.5 text-[11px] text-red-600 hover:bg-red-50'>
                                 {t('Remove broken source')}
                             </button>
                         </>
@@ -255,12 +255,12 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                 ) : data.status === 'error' ? (
                     <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
                         <ImageOff className='h-6 w-6 text-red-400' />
-                        <span className='text-[11px] leading-relaxed text-red-600'>{data.error}</span>
+                        <span className='text-[12px] leading-relaxed text-red-600'>{data.error}</span>
                     </div>
                 ) : (
                     <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-400'>
                         <Wand2 className='h-6 w-6' />
-                        <span className='px-6 text-center text-[11px]'>{t('Write a prompt, then run this node.')}</span>
+                        <span className='px-6 text-center text-[12px]'>{t('Write a prompt, then run this node.')}</span>
                     </div>
                 )}
 
@@ -341,7 +341,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                     </Button>
                 </div>
 
-                <div className='flex items-center gap-2 text-[11px] text-slate-500'>
+                <div className='flex items-center gap-2 text-[12px] text-slate-500'>
                     <button
                         type='button'
                         className='nodrag rounded px-1 py-0.5 hover:bg-slate-100 hover:text-slate-900'
@@ -413,7 +413,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                 )}
 
                 {(data.durationMs || data.costDetails) && (
-                    <div className='flex items-center gap-3 text-[11px] text-slate-400'>
+                    <div className='flex items-center gap-3 text-[12px] text-slate-400'>
                         {data.durationMs ? <span>{(data.durationMs / 1000).toFixed(1)}s</span> : null}
                         {data.costDetails ? <span>${data.costDetails.estimated_cost_usd.toFixed(4)}</span> : null}
                     </div>

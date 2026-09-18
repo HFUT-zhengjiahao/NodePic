@@ -259,7 +259,12 @@ export function MaskEditor({
 
             <div
                 className='relative mx-auto w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50'
-                style={{ maxWidth: `min(100%, ${imageWidth}px)`, aspectRatio: `${imageWidth} / ${imageHeight}` }}>
+                // Cap by viewport height as well as width: a square mask picture would otherwise push
+                // the brush slider and the Save button below the fold on a 728px-tall laptop screen.
+                style={{
+                    maxWidth: `min(100%, ${imageWidth}px, ${((44 * imageWidth) / imageHeight).toFixed(2)}vh)`,
+                    aspectRatio: `${imageWidth} / ${imageHeight}`
+                }}>
                 <Image
                     src={imageUrl}
                     alt={t('Image preview for masking')}
