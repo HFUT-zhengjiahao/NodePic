@@ -12,6 +12,7 @@ import {
     Clock,
     CopyPlus,
     Download,
+    ImagePlus,
     ImageOff,
     Loader2,
     Maximize2,
@@ -31,6 +32,7 @@ export type TaskNodeActions = {
     onRun: (id: string) => void;
     onDeriveEdit: (id: string) => void;
     onClone: (id: string) => void;
+    onReplaceImage: (id: string) => void;
     onRemoveSource: (id: string, filename: string) => void;
     onClearSources: (id: string) => void;
     onOpenMask: (id: string, image: { filename: string; path: string }) => void;
@@ -83,6 +85,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
     const firstImage = data.images[0];
     const hasImage = !!visibleImage && !data.resultMissing;
     const isEdit = data.kind === 'edit';
+    const isImage = data.kind === 'image';
     // A mask describes what the model may repaint, so it belongs to the *source* picture of an edit
     // node — never to that node's own result.
     const maskTarget = isEdit && data.sourceFilenames[0]
@@ -109,21 +112,28 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
             {/* header */}
             <div className='flex items-center gap-2 border-b border-slate-100 px-3 py-2'>
                 <span
-                    className={`h-2 w-2 shrink-0 rounded-full ${isEdit ? 'bg-violet-500' : 'bg-indigo-500'}`}
+                    className={`h-2 w-2 shrink-0 rounded-full ${
+                        isImage ? 'bg-amber-500' : isEdit ? 'bg-violet-500' : 'bg-indigo-500'
+                    }`}
                     aria-hidden='true'
                 />
-                <span className='text-[13px] font-semibold tracking-tight'>{isEdit ? t('Edit Image') : t('Generate Image')}</span>
-                <select
-                    className={`${selectClass} ml-auto !w-[150px]`}
-                    value={data.params.model}
-                    disabled={isRunning}
-                    onChange={(event) => actions.onPatchParams(id, { model: event.target.value as GptImageModel })}>
-                    {GPT_IMAGE_MODELS.map((model) => (
-                        <option key={model} value={model}>
-                            {model}
-                        </option>
-                    ))}
-                </select>
+                <span className='text-[13px] font-semibold tracking-tight'>
+                    {isImage ? t('Uploaded image') : isEdit ? t('Edit Image') : t('Generate Image')}
+                </span>
+                {!isImage && (
+                    <select
+                        className={`${selectClass} ml-auto !w-[150px]`}
+                        value={data.params.model}
+                        disabled={isRunning}
+                        onChange={(event) => actions.onPatchParams(id, { model: event.target.value as GptImageModel })}>
+                        {GPT_IMAGE_MODELS.map((model) => (
+                            <option key={model} value={model}>
+                                {model}
+                            </option>
+                        ))}
+                    </select>
+                )}
+                {isImage && <span className='ml-auto' />}
                 <button
                     type='button'
                     className='nodrag rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600'
@@ -290,28 +300,55 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
 
             {/* prompt + actions */}
             <div className='space-y-2 px-3 py-2.5'>
-                <Textarea
-                    value={data.prompt}
-                    onChange={(event) => actions.onPatch(id, { prompt: event.target.value })}
-                    placeholder={isEdit ? t('e.g., Add a party hat to the main subject') : t('e.g., A photorealistic cat astronaut floating in space')}
-                    disabled={isRunning}
-                    className='nodrag nowheel min-h-[64px] resize-y rounded-lg border-slate-200 bg-white text-[13px] text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
-                />
+                {!isImage && (
+                    <Textarea
+                        value={data.prompt}
+                        onChange={(event) => actions.onPatch(id, { prompt: event.target.value })}
+                        placeholder={
+                            isEdit
+                                ? t('e.g., Add a party hat to the main subject')
+                                : t('e.g., A photorealistic cat astronaut floating in space')
+                        }
+                        disabled={isRunning}
+                        className='nodrag nowheel min-h-[64px] resize-y rounded-lg border-slate-200 bg-white text-[13px] text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
+                    />
+                )}
 
                 <div className='flex items-center gap-2'>
-                    <Button
-                        type='button'
-                        size='sm'
-                        disabled={isRunning || isQueued || !data.prompt.trim()}
-                        onClick={() => actions.onRun(id)}
-                        className='nodrag h-8 flex-1 bg-indigo-600 text-[13px] text-white shadow-sm hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
-                        {isRunning || isQueued ? (
-                            <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
-                        ) : (
-                            <Play className='mr-1.5 h-3.5 w-3.5' />
-                        )}
-                        {isQueued ? t('Queued…') : isRunning ? t('Generating…') : isEdit ? t('Edit Image') : t('Generate')}
-                    </Button>
+                    {!isImage && (
+                        <Button
+                            type='button'
+                            size='sm'
+                            disabled={isRunning || isQueued || !data.prompt.trim()}
+                            onClick={() => actions.onRun(id)}
+                            className='nodrag h-8 flex-1 bg-indigo-600 text-[13px] text-white shadow-sm hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
+                            {isRunning || isQueued ? (
+                                <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                            ) : (
+                                <Play className='mr-1.5 h-3.5 w-3.5' />
+                            )}
+                            {isQueued
+                                ? t('Queued…')
+                                : isRunning
+                                  ? t('Generating…')
+                                  : isEdit
+                                    ? t('Edit Image')
+                                    : t('Generate')}
+                        </Button>
+                    )}
+                    {isImage && (
+                        <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            disabled={isRunning}
+                            title={t('Replace this picture with another file')}
+                            onClick={() => actions.onReplaceImage(id)}
+                            className='nodrag h-8 flex-1 border-slate-200 text-[12px] text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
+                            <ImagePlus className='mr-1.5 h-3.5 w-3.5' />
+                            {t('Replace picture')}
+                        </Button>
+                    )}
                     <Button
                         type='button'
                         variant='outline'
@@ -323,6 +360,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         <Shuffle className='mr-1 h-3.5 w-3.5' />
                         {t('Branch edit')}
                     </Button>
+                    {!isImage && (
                     <Button
                         type='button'
                         variant='outline'
@@ -333,6 +371,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         className='nodrag h-8 border-slate-200 px-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
                         <CopyPlus className='h-3.5 w-3.5' />
                     </Button>
+                    )}
                     <Button
                         type='button'
                         variant='outline'
@@ -345,6 +384,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                     </Button>
                 </div>
 
+                {!isImage && (
                 <div className='flex items-center gap-2 text-[12px] text-slate-500'>
                     <button
                         type='button'
@@ -356,8 +396,9 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         {sizeLabel(data.params.size)} · {data.params.quality} · {data.params.outputFormat.toUpperCase()}
                     </span>
                 </div>
+                )}
 
-                {showParams && (
+                {!isImage && showParams && (
                     <div className='nodrag grid grid-cols-4 gap-1.5 pt-0.5'>
                         <select
                             className={selectClass}
@@ -416,7 +457,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                     </div>
                 )}
 
-                {(data.durationMs || data.costDetails) && (
+                {!isImage && (data.durationMs || data.costDetails) && (
                     <div className='flex items-center gap-3 text-[12px] text-slate-400'>
                         {data.durationMs ? <span>{(data.durationMs / 1000).toFixed(1)}s</span> : null}
                         {data.costDetails ? <span>${data.costDetails.estimated_cost_usd.toFixed(4)}</span> : null}

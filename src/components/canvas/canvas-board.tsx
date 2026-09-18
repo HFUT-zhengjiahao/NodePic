@@ -333,10 +333,121 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
         [setNodes]
     );
 
+    // --- picking local pictures ---------------------------------------------------------------
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const pendingUpload = React.useRef<{ kind: 'nodes'; position?: { x: number; y: number } } | { kind: 'replace'; nodeId: string } | null>(null);
+
+    /** Sends picked files to /api/image-upload and returns their server-side filenames. */
+    const uploadFiles = React.useCallback(
+        async (files: File[]): Promise<Array<{ filename: string; path: string }>> => {
+            const formData = new FormData();
+            files.forEach((file) => formData.append('file', file));
+            if (passwordHash) formData.append('passwordHash', passwordHash);
+
+            const response = await fetch('/api/image-upload', { method: 'POST', body: formData });
+            const result = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(
+                    result?.error || t('Upload failed with status {status}', { status: response.status })
+                );
+            }
+            return (result.files ?? []).map((file: { filename: string; path: string }) => ({
+                filename: file.filename,
+                path: file.path
+            }));
+        },
+        [passwordHash, t]
+    );
+
+    /** Adds one node per uploaded picture, starting at the drop point (or the viewport centre). */
+    const addImageNodes = React.useCallback(
+        async (files: File[], position?: { x: number; y: number }) => {
+            if (files.length === 0) return;
+            try {
+                const uploaded = await uploadFiles(files);
+                const origin =
+                    position ?? screenToFlowPosition({ x: window.innerWidth / 2 - 190, y: window.innerHeight / 2 - 180 });
+                setNodes((prev) => [
+                    ...prev,
+                    ...uploaded.map(
+                        (file, index) =>
+                            ({
+                                id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                                type: 'task',
+                                position: { x: origin.x, y: origin.y + index * 140 },
+                                data: createTaskData('image', { images: [file] }),
+                                selected: false
+                            }) as TaskNodeType
+                    )
+                ]);
+                onNotify?.(t('Added {count} picture node(s).', { count: uploaded.length }), 'success');
+            } catch (error) {
+                console.error('Image upload failed:', error);
+                onNotify?.(error instanceof Error ? error.message : t('An unexpected error occurred.'), 'error');
+            }
+        },
+        [onNotify, screenToFlowPosition, setNodes, t, uploadFiles]
+    );
+
+    const replaceNodeImage = React.useCallback((id: string) => {
+        pendingUpload.current = { kind: 'replace', nodeId: id };
+        fileInputRef.current?.click();
+    }, []);
+
+    const openUploadPicker = React.useCallback((position?: { x: number; y: number }) => {
+        pendingUpload.current = { kind: 'nodes', position };
+        fileInputRef.current?.click();
+    }, []);
+
+    const handlePickedFiles = React.useCallback(
+        async (fileList: FileList | null) => {
+            const files = Array.from(fileList ?? []).filter((file) => file.type.startsWith('image/'));
+            const intent = pendingUpload.current;
+            pendingUpload.current = null;
+            if (files.length === 0) return;
+
+            if (intent?.kind === 'replace') {
+                try {
+                    const [uploaded] = await uploadFiles([files[0]]);
+                    if (uploaded) {
+                        patchNode(intent.nodeId, {
+                            images: [uploaded],
+                            viewIndex: 0,
+                            resultMissing: false,
+                            status: 'idle',
+                            error: null
+                        });
+                        onNotify?.(t('Picture replaced.'), 'success');
+                    }
+                } catch (error) {
+                    console.error('Image replacement failed:', error);
+                    onNotify?.(error instanceof Error ? error.message : t('An unexpected error occurred.'), 'error');
+                }
+                return;
+            }
+
+            await addImageNodes(files, intent?.position);
+        },
+        [addImageNodes, onNotify, patchNode, t, uploadFiles]
+    );
+
+    /** Dropping files anywhere on the canvas adds them as picture nodes. */
+    const handleDrop = React.useCallback(
+        (event: React.DragEvent) => {
+            if (!event.dataTransfer?.files?.length) return;
+            event.preventDefault();
+            const position = screenToFlowPosition({ x: event.clientX - 190, y: event.clientY - 120 });
+            void addImageNodes(Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith('image/')), position);
+        },
+        [addImageNodes, screenToFlowPosition]
+    );
+
     const runNode = React.useCallback(
         async (id: string) => {
             const node = nodesRef.current.find((item) => item.id === id);
             if (!node) return;
+            // A picture node is a source, not a task: only generate/edit nodes talk to the provider.
+            if (node.data.kind === 'image') return;
             if (!node.data.prompt.trim()) return;
             if (runningRef.current.has(id)) return;
 
@@ -731,13 +842,24 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
             onRun: runNode,
             onDeriveEdit: deriveEditNode,
             onClone: cloneNode,
+            onReplaceImage: replaceNodeImage,
             onRemoveSource: removeSource,
             onClearSources: clearSources,
             onOpenMask: (id, image) => setMaskTarget({ nodeId: id, filename: image.filename, path: image.path }),
             onDelete: deleteNode,
             onExpand: (image) => setExpanded(image)
         }),
-        [clearSources, cloneNode, deleteNode, deriveEditNode, patchNode, patchParams, removeSource, runNode]
+        [
+            clearSources,
+            cloneNode,
+            deleteNode,
+            deriveEditNode,
+            patchNode,
+            patchParams,
+            removeSource,
+            replaceNodeImage,
+            runNode
+        ]
     );
 
     const nodeTypes = React.useMemo(() => ({ task: TaskNode }), []);
@@ -745,7 +867,23 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
     return (
         <div
             className='relative h-[calc(100dvh-88px)] min-h-[520px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
-            onDoubleClick={handleDoubleClick}>
+            onDoubleClick={handleDoubleClick}
+            onDragOver={(event) => {
+                if (event.dataTransfer?.types?.includes('Files')) event.preventDefault();
+            }}
+            onDrop={handleDrop}>
+            <input
+                ref={fileInputRef}
+                id='canvas-image-upload'
+                type='file'
+                accept='image/png,image/jpeg,image/webp'
+                multiple
+                className='hidden'
+                onChange={(event) => {
+                    void handlePickedFiles(event.target.files);
+                    event.target.value = '';
+                }}
+            />
             <div className='pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2'>
                 <Button
                     type='button'
@@ -753,6 +891,14 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                     onClick={() => addNode('generate')}
                     className='pointer-events-auto bg-indigo-600 text-white shadow-sm hover:bg-indigo-500'>
                     <Plus className='mr-1.5 h-4 w-4' /> {t('New generate node')}
+                </Button>
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => openUploadPicker()}
+                    className='pointer-events-auto border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
+                    <ImagePlus className='mr-1.5 h-4 w-4' /> {t('Upload image')}
                 </Button>
                 <Button
                     type='button'

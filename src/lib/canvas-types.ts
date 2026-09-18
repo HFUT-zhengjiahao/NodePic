@@ -24,8 +24,11 @@ export type CanvasTaskParams = {
 export type CanvasTaskStatus = 'idle' | 'queued' | 'running' | 'error';
 
 /** Everything a canvas node knows. Kept JSON-serialisable so it can be persisted. */
+export type CanvasTaskKind = 'generate' | 'edit' | 'image';
+
 export type CanvasTaskData = {
-    kind: 'generate' | 'edit';
+    /** `image` nodes simply hold a picture the user picked from their machine. */
+    kind: CanvasTaskKind;
     prompt: string;
     params: CanvasTaskParams;
     /** Source images for edit nodes (filenames the server can serve back). */
@@ -70,7 +73,7 @@ export const DEFAULT_TASK_PARAMS: CanvasTaskParams = {
     moderation: 'auto'
 };
 
-export function createTaskData(kind: 'generate' | 'edit', overrides: Partial<CanvasTaskData> = {}): CanvasTaskData {
+export function createTaskData(kind: CanvasTaskKind, overrides: Partial<CanvasTaskData> = {}): CanvasTaskData {
     return {
         kind,
         prompt: '',

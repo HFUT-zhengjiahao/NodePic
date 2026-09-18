@@ -71,5 +71,12 @@ export const canvas: Record<string, string> = {
     'This relay accepts {max} source image per edit request. Remove the current source first.':
         '当前中转一次只接受 {max} 张源图，请先移除已有的源图。',
     'Downstream nodes now use the picture from this run.': '下游节点的源图已自动同步为本次生成的新图。',
+    'Upload image': '上传图片',
+    'Uploaded image': '上传的图片',
+    'Replace picture': '替换图片',
+    'Replace this picture with another file': '用另一个文件替换这张图片',
+    'Picture replaced.': '图片已替换。',
+    'Added {count} picture node(s).': '已添加 {count} 个图片节点。',
+    'Upload failed with status {status}': '上传失败（HTTP {status}）',
     'An unexpected error occurred.': '出错了，请重试。'
 };
