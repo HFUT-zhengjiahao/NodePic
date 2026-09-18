@@ -94,8 +94,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
             <Handle
                 type='target'
                 position={Position.Left}
-                isConnectable={false}
-                className='!h-2 !w-2 !border-2 !border-white !bg-indigo-300'
+                className='!h-3 !w-3 !border-2 !border-white !bg-indigo-300 transition-transform hover:!scale-125'
             />
 
             {/* header */}
@@ -239,8 +238,9 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         disabled={!firstImage || isRunning}
                         title={t('Use as source for edit')}
                         onClick={() => actions.onDeriveEdit(id)}
-                        className='nodrag h-8 border-slate-200 px-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
-                        <Shuffle className='h-3.5 w-3.5' />
+                        className='nodrag h-8 border-slate-200 px-2 text-[12px] text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
+                        <Shuffle className='mr-1 h-3.5 w-3.5' />
+                        {t('Branch edit')}
                     </Button>
                     <Button
                         type='button'
@@ -336,8 +336,8 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
             <Handle
                 type='source'
                 position={Position.Right}
-                isConnectable={false}
-                className='!h-2 !w-2 !border-2 !border-white !bg-indigo-400'
+                title='拖动我连线到另一个节点'
+                className='!h-3.5 !w-3.5 !border-2 !border-white !bg-indigo-500 transition-transform hover:!scale-125'
             />
         </div>
     );

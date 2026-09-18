@@ -12,6 +12,7 @@ import { useI18n } from '@/lib/i18n';
 import {
     Background,
     BackgroundVariant,
+    ConnectionMode,
     Controls,
     MiniMap,
     ReactFlow,
@@ -20,6 +21,7 @@ import {
     useNodesState,
     useReactFlow,
     MarkerType,
+    type Connection,
     type Edge,
     type Node
 } from '@xyflow/react';
@@ -29,6 +31,7 @@ import Image from 'next/image';
 import * as React from 'react';
 
 const STORAGE_KEY = 'gptImageCanvas';
+const HINT_KEY = 'gptImageCanvasHintDismissed';
 
 /** Shared look for every lineage edge: smooth left-to-right curve with an arrow head. */
 const EDGE_STYLE = { stroke: '#a5b4fc', strokeWidth: 2 } as const;
@@ -89,6 +92,17 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
 
     const nodesRef = React.useRef(nodes);
     nodesRef.current = nodes;
+    const [showHint, setShowHint] = React.useState(false);
+
+    React.useEffect(() => {
+        queueMicrotask(() => setShowHint(window.localStorage.getItem(HINT_KEY) !== '1'));
+    }, []);
+
+    const dismissHint = React.useCallback(() => {
+        setShowHint(false);
+        window.localStorage.setItem(HINT_KEY, '1');
+    }, []);
+
     const maskFiles = React.useRef(new Map<string, File>());
     const skipFirstSave = React.useRef(true);
 
@@ -197,7 +211,11 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                     selected: false
                 } as TaskNodeType
             ]);
-            window.setTimeout(() => fitView({ padding: 0.25, duration: 300 }), 80);
+            // Only re-frame the viewport when the node was created from the toolbar; a double-click
+            // placement should stay exactly where the user pointed.
+            if (!position) {
+                window.setTimeout(() => fitView({ padding: 0.25, duration: 300 }), 80);
+            }
             return id;
         },
         [fitView, screenToFlowPosition, setNodes]
@@ -238,6 +256,99 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
         [findFreePosition, fitView, setEdges, setNodes]
     );
 
+    /** Wires the upstream picture into the downstream node (shared by both connection paths). */
+    const wireConnection = React.useCallback(
+        (source?: string | null, target?: string | null) => {
+            if (!source || !target || source === target) return;
+
+            const parent = nodesRef.current.find((node) => node.id === source);
+            const image = parent?.data.images[0];
+            if (!image) {
+                window.alert(t('The source node has no image yet — run it first.'));
+                return;
+            }
+
+            // A connected node always edits its upstream picture, so a generate node becomes an edit node.
+            setNodes((prev) =>
+                prev.map((node) => {
+                    if (node.id !== target) return node;
+                    const sourceFilenames = node.data.sourceFilenames.includes(image.filename)
+                        ? node.data.sourceFilenames
+                        : [...node.data.sourceFilenames, image.filename].slice(0, 16);
+                    return { ...node, data: { ...node.data, kind: 'edit', sourceFilenames } };
+                })
+            );
+            setEdges((prev) =>
+                prev.some((edge) => edge.source === source && edge.target === target)
+                    ? prev
+                    : [
+                          ...prev,
+                          {
+                              id: `edge-${source}-${target}`,
+                              source,
+                              target,
+                              type: 'default',
+                              animated: true,
+                              style: EDGE_STYLE,
+                              markerEnd: EDGE_MARKER
+                          }
+                      ]
+            );
+        },
+        [setEdges, setNodes, t]
+    );
+
+    const onConnect = React.useCallback(
+        (connection: Connection) => wireConnection(connection.source, connection.target),
+        [wireConnection]
+    );
+
+    /**
+     * React Flow only snaps a connection onto a handle. Users naturally drop on the middle of the
+     * target card, so fall back to whatever node the pointer was released over.
+     */
+    const onConnectEnd = React.useCallback(
+        (
+            event: MouseEvent | TouchEvent,
+            state: { isValid: boolean | null; fromNode: { id: string } | null; toNode: { id: string } | null }
+        ) => {
+            if (state.isValid) return;
+
+            let targetId: string | null = state.toNode?.id ?? null;
+            if (!targetId) {
+                // React Flow only reports toNode for handle hits, so resolve the card under the pointer
+                // ourselves — dropping anywhere on the target node is what users actually do.
+                const point = 'changedTouches' in event ? event.changedTouches[0] : event;
+                const stack = document.elementsFromPoint(point.clientX, point.clientY);
+                for (const element of stack) {
+                    const nodeElement = element.closest?.('.react-flow__node') as HTMLElement | null;
+                    if (nodeElement?.dataset.id) {
+                        targetId = nodeElement.dataset.id;
+                        break;
+                    }
+                }
+            }
+
+            wireConnection(state.fromNode?.id, targetId);
+        },
+        [wireConnection]
+    );
+
+    /**
+     * Double-clicking empty canvas drops a new node right there (Shift = edit node).
+     * Requires `zoomOnDoubleClick={false}`: React Flow's d3-zoom handler stops propagation of the
+     * dblclick event, which would otherwise prevent this handler from ever running.
+     */
+    const handleDoubleClick = React.useCallback(
+        (event: React.MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (!target.classList.contains('react-flow__pane')) return;
+            const position = screenToFlowPosition({ x: event.clientX - 190, y: event.clientY - 110 });
+            addNode(event.shiftKey ? 'edit' : 'generate', position);
+        },
+        [addNode, screenToFlowPosition]
+    );
+
     const deleteNode = React.useCallback(
         (id: string) => {
             if (!window.confirm(t('Delete this node? This cannot be undone.'))) return;
@@ -271,7 +382,9 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
     const nodeTypes = React.useMemo(() => ({ task: TaskNode }), []);
 
     return (
-        <div className='relative h-[78vh] min-h-[640px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'>
+        <div
+            className='relative h-[78vh] min-h-[640px] w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'
+            onDoubleClick={handleDoubleClick}>
             <div className='pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2'>
                 <Button
                     type='button'
@@ -314,8 +427,14 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                     edges={edges}
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChange}
+                    onConnect={onConnect}
+                    onConnectEnd={onConnectEnd}
+                    connectionMode={ConnectionMode.Loose}
+                    connectionRadius={48}
+                    connectionLineStyle={{ stroke: '#818cf8', strokeWidth: 2 }}
                     nodeTypes={nodeTypes}
                     fitView
+                    zoomOnDoubleClick={false}
                     minZoom={0.15}
                     maxZoom={1.6}
                     className='canvas-shell bg-slate-50/60'>
@@ -330,6 +449,22 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                     />
                 </ReactFlow>
             </TaskNodeActionsProvider>
+
+            {showHint && (
+                <div className='absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-[11px] whitespace-nowrap text-slate-600 shadow-sm'>
+                    <span>{t('Double-click empty canvas to add a node')}</span>
+                    <span className='text-slate-300'>·</span>
+                    <span>{t('Drag from a node’s right dot onto another node to reference its image')}</span>
+                    <span className='text-slate-300'>·</span>
+                    <span className='text-slate-400'>{t('Shift + double-click adds an edit node')}</span>
+                    <button
+                        type='button'
+                        onClick={dismissHint}
+                        className='ml-1 rounded px-1.5 py-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700'>
+                        {t('Got it')}
+                    </button>
+                </div>
+            )}
 
             {nodes.length === 0 && (
                 <div className='pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 text-center'>

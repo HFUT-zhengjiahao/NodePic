@@ -17,7 +17,7 @@ export const canvas: Record<string, string> = {
     'Write a prompt, then run this node.': '写下提示词，然后运行这个节点。',
     'Your canvas is empty': '画布还是空的',
     'Create a generate node to make an image, then click “Use as source for edit” on it to branch off an edit node.':
-        '先新建一个生成节点出图，再在它上面点「以此为源图编辑」，就会长出一个编辑节点。',
+        '先新建一个生成节点出图，再点节点上的「派生编辑」，就会长出一个带源图的编辑节点。',
     'Expand': '放大查看',
     'Download': '下载',
     'images': '张图片',
@@ -26,5 +26,11 @@ export const canvas: Record<string, string> = {
     'Generating…': '生成中…',
     'Loading…': '加载中…',
     'Masks only apply to edit nodes': '蒙版只对编辑节点生效',
+    'Branch edit': '派生编辑',
+    'Double-click empty canvas to add a node': '双击空白处新建节点',
+    'Drag from a node’s right dot onto another node to reference its image': '拖动节点右侧圆点到另一个节点，即可引用它的图片',
+    'Shift + double-click adds an edit node': 'Shift + 双击 = 新建编辑节点',
+    'Got it': '知道了',
+    'The source node has no image yet — run it first.': '源节点还没有出图，先运行它。',
     'An unexpected error occurred.': '出错了，请重试。'
 };
