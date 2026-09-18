@@ -19,6 +19,7 @@ import {
     useEdgesState,
     useNodesState,
     useReactFlow,
+    MarkerType,
     type Edge,
     type Node
 } from '@xyflow/react';
@@ -28,7 +29,11 @@ import Image from 'next/image';
 import * as React from 'react';
 
 const STORAGE_KEY = 'gptImageCanvas';
-const NODE_GAP_X = 440;
+
+/** Shared look for every lineage edge: smooth left-to-right curve with an arrow head. */
+const EDGE_STYLE = { stroke: '#a5b4fc', strokeWidth: 2 } as const;
+const EDGE_MARKER = { type: MarkerType.ArrowClosed, color: '#a5b4fc', width: 18, height: 18 } as const;
+const NODE_GAP_X = 470;
 const NODE_GAP_Y = 120;
 
 type CanvasSnapshot = {
@@ -59,7 +64,14 @@ function loadSnapshot(): CanvasSnapshot {
                   }
               }))
             : [];
-        return { nodes, edges: Array.isArray(parsed.edges) ? parsed.edges : [] };
+        const edges = (Array.isArray(parsed.edges) ? parsed.edges : []).map((edge) => ({
+            ...edge,
+            type: 'default',
+            animated: true,
+            style: { ...EDGE_STYLE, ...(edge.style ?? {}) },
+            markerEnd: edge.markerEnd ?? EDGE_MARKER
+        }));
+        return { nodes, edges };
     } catch (error) {
         console.error('Failed to read the saved canvas:', error);
         return { nodes: [], edges: [] };
@@ -215,8 +227,10 @@ function CanvasFlow({ onTaskComplete, passwordHash }: CanvasBoardProps) {
                     id: `edge-${id}-${newId}`,
                     source: id,
                     target: newId,
+                    type: 'default',
                     animated: true,
-                    style: { stroke: '#a5b4fc', strokeWidth: 2 }
+                    style: EDGE_STYLE,
+                    markerEnd: EDGE_MARKER
                 }
             ]);
             window.setTimeout(() => fitView({ padding: 0.25, duration: 300 }), 80);

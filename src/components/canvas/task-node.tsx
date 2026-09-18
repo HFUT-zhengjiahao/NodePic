@@ -91,7 +91,12 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
             className={`w-[380px] overflow-hidden rounded-xl border bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.06),0_14px_36px_-24px_rgba(15,23,42,0.35)] transition-shadow ${
                 selected ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-slate-200'
             }`}>
-            <Handle type='target' position={Position.Top} isConnectable={false} className='!bg-slate-300' />
+            <Handle
+                type='target'
+                position={Position.Left}
+                isConnectable={false}
+                className='!h-2 !w-2 !border-2 !border-white !bg-indigo-300'
+            />
 
             {/* header */}
             <div className='flex items-center gap-2 border-b border-slate-100 px-3 py-2'>
@@ -328,7 +333,12 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                 )}
             </div>
 
-            <Handle type='source' position={Position.Bottom} isConnectable={false} className='!bg-slate-300' />
+            <Handle
+                type='source'
+                position={Position.Right}
+                isConnectable={false}
+                className='!h-2 !w-2 !border-2 !border-white !bg-indigo-400'
+            />
         </div>
     );
 }
