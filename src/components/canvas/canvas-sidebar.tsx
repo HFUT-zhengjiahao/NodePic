@@ -85,7 +85,7 @@ export function CanvasSidebar({
 
     if (collapsed) {
         return (
-            <div className='flex w-12 shrink-0 flex-col items-center gap-1.5 pt-1'>
+            <div className='sticky top-1 flex w-12 shrink-0 flex-col items-center gap-1.5 pt-1'>
                 <Button
                     type='button'
                     variant='outline'
@@ -97,12 +97,21 @@ export function CanvasSidebar({
                 </Button>
                 {navButton('canvas', Workflow, t('Canvas'))}
                 {navButton('history', History, t('History'))}
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='icon'
+                    onClick={onCreate}
+                    title={t('New canvas')}
+                    className='h-8 w-8 border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
+                    <Plus className='h-4 w-4' />
+                </Button>
             </div>
         );
     }
 
     return (
-        <aside className='flex w-56 shrink-0 flex-col gap-3'>
+        <aside className='sticky top-1 flex max-h-[calc(100dvh-1rem)] w-56 shrink-0 flex-col gap-3'>
             <div className='flex flex-col gap-0.5'>
                 {navButton('canvas', Workflow, t('Canvas'))}
                 {navButton('history', History, t('History'))}
@@ -132,7 +141,7 @@ export function CanvasSidebar({
                     </Button>
                 </div>
 
-                <div className='flex max-h-[calc(100dvh-220px)] flex-col gap-2 overflow-y-auto pr-1'>
+                <div className='flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1'>
                     {canvases.map((canvas) => {
                         const active = canvas.id === activeId;
                         const stat = stats.get(canvas.id);

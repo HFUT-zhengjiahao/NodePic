@@ -65,7 +65,6 @@ export default function Home() {
     const { t } = useI18n();
 
     const [view, setView] = React.useState<'canvas' | 'history'>('canvas');
-    const [canvasMounted, setCanvasMounted] = React.useState(true);
     const [history, setHistory] = React.useState<HistoryMetadata[]>([]);
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState(false);
     const [canvases, setCanvases] = React.useState<CanvasMeta[]>([]);
@@ -150,7 +149,6 @@ export default function Home() {
 
     const selectView = React.useCallback((next: 'canvas' | 'history') => {
         setView(next);
-        if (next === 'canvas') setCanvasMounted(true);
         try {
             window.localStorage.setItem(VIEW_KEY, next);
         } catch (error) {
@@ -487,85 +485,72 @@ export default function Home() {
                 <LanguageToggle />
             </div>
 
-            {canvasMounted && (
-                <div className={view === 'canvas' ? 'flex w-full max-w-screen-2xl gap-4' : 'hidden'}>
-                    <CanvasSidebar
-                        view={view}
-                        onViewChange={selectView}
-                        canvases={canvases}
-                        activeId={activeCanvasId}
-                        revision={canvasRevision}
-                        collapsed={isCanvasListCollapsed}
-                        onToggleCollapsed={() => setIsCanvasListCollapsed((prev) => !prev)}
-                        onSelect={handleSelectCanvas}
-                        onCreate={handleCreateCanvas}
-                        onRename={handleRenameCanvas}
-                        onDuplicate={handleDuplicateCanvas}
-                        onDelete={handleDeleteCanvas}
-                    />
-                    <div className='relative min-w-0 flex-1'>
-                        {activeCanvasId ? (
-                            <CanvasBoard
-                                key={activeCanvasId}
-                                canvasId={activeCanvasId}
-                                nodeDefaults={clientSettings}
-                                onSaved={handleCanvasSaved}
-                                incomingImages={incomingImages}
-                                onIncomingImagesHandled={() => setIncomingImages(null)}
-                                onTaskComplete={handleCanvasTaskComplete}
-                                onNotify={notify}
-                                passwordHash={clientPasswordHash}
-                            />
-                        ) : null}
-                        <div className='absolute bottom-4 left-4 z-20'>
-                            <SettingsButton
-                                defaults={clientSettings}
-                                onDefaultsChange={updateClientSettings}
-                                onNotify={notify}
-                                passwordHash={clientPasswordHash}
-                                onPasswordChange={updatePassword}
-                            />
-                        </div>
+            {/* One layout for both views. The sidebar used to be rendered twice — once inside a flex
+                row for the canvas, once as a block above the gallery — which is why the history page
+                ended up pushed underneath it. */}
+            <div className='flex w-full max-w-screen-2xl items-start gap-4'>
+                <CanvasSidebar
+                    view={view}
+                    onViewChange={selectView}
+                    canvases={canvases}
+                    activeId={activeCanvasId}
+                    revision={canvasRevision}
+                    collapsed={isCanvasListCollapsed}
+                    onToggleCollapsed={() => setIsCanvasListCollapsed((prev) => !prev)}
+                    onSelect={(id) => {
+                        handleSelectCanvas(id);
+                        selectView('canvas');
+                    }}
+                    onCreate={handleCreateCanvas}
+                    onRename={handleRenameCanvas}
+                    onDuplicate={handleDuplicateCanvas}
+                    onDelete={handleDeleteCanvas}
+                />
+
+                {/* Hidden rather than unmounted: a running queue and the undo stack must survive a
+                    trip to the history page. */}
+                <div className={view === 'canvas' ? 'relative min-w-0 flex-1' : 'hidden'}>
+                    {activeCanvasId ? (
+                        <CanvasBoard
+                            key={activeCanvasId}
+                            canvasId={activeCanvasId}
+                            nodeDefaults={clientSettings}
+                            onSaved={handleCanvasSaved}
+                            incomingImages={incomingImages}
+                            onIncomingImagesHandled={() => setIncomingImages(null)}
+                            onTaskComplete={handleCanvasTaskComplete}
+                            onNotify={notify}
+                            passwordHash={clientPasswordHash}
+                        />
+                    ) : null}
+                    <div className='absolute bottom-4 left-4 z-20'>
+                        <SettingsButton
+                            defaults={clientSettings}
+                            onDefaultsChange={updateClientSettings}
+                            onNotify={notify}
+                            passwordHash={clientPasswordHash}
+                            onPasswordChange={updatePassword}
+                        />
                     </div>
                 </div>
-            )}
 
-            {view === 'history' && (
-                <div className='w-full max-w-screen-2xl'>
-                    <CanvasSidebar
-                        view={view}
-                        onViewChange={selectView}
-                        canvases={canvases}
-                        activeId={activeCanvasId}
-                        revision={canvasRevision}
-                        collapsed={isCanvasListCollapsed}
-                        onToggleCollapsed={() => setIsCanvasListCollapsed((prev) => !prev)}
-                        onSelect={(id) => {
-                            handleSelectCanvas(id);
-                            selectView('canvas');
-                        }}
-                        onCreate={handleCreateCanvas}
-                        onRename={handleRenameCanvas}
-                        onDuplicate={handleDuplicateCanvas}
-                        onDelete={handleDeleteCanvas}
-                    />
-                </div>
-            )}
-
-            {view === 'history' && (
-                <HistoryGallery
-                    history={history}
-                    getImageSrc={getImageSrc}
-                    describeReferenceWarning={describeReferenceWarning}
-                    onDelete={executeDelete}
-                    onClearHistory={handleClearHistory}
-                    onCleanupUnusedImages={handleCleanupUnusedImages}
-                    onRebuildFromDisk={rebuildHistoryFromDisk}
-                    onSendToCanvas={sendToCanvas}
-                    skipConfirm={skipDeleteConfirmation}
-                    onSkipConfirmChange={updateSkipDelete}
-                />
-            )}
+                {view === 'history' && (
+                    <div className='min-w-0 flex-1'>
+                        <HistoryGallery
+                            history={history}
+                            getImageSrc={getImageSrc}
+                            describeReferenceWarning={describeReferenceWarning}
+                            onDelete={executeDelete}
+                            onClearHistory={handleClearHistory}
+                            onCleanupUnusedImages={handleCleanupUnusedImages}
+                            onRebuildFromDisk={rebuildHistoryFromDisk}
+                            onSendToCanvas={sendToCanvas}
+                            skipConfirm={skipDeleteConfirmation}
+                            onSkipConfirmChange={updateSkipDelete}
+                        />
+                    </div>
+                )}
+            </div>
 
             <Dialog open={!!cleanupPreview} onOpenChange={(open) => !open && setCleanupPreview(null)}>
                 <DialogContent className='border-slate-200 bg-white text-slate-900 sm:max-w-[480px]'>
