@@ -215,5 +215,6 @@ export const canvas: Record<string, string> = {
     'History already covers every picture on disk.': '磁盘上的图片都已在历史记录中。',
     'Recovered {count} picture(s) from disk.': '已从磁盘恢复 {count} 张图片的记录。',
     'Recovered': '已恢复',
+    'Confirm': '确定',
     'An unexpected error occurred.': '出错了，请重试。'
 };

@@ -4,7 +4,14 @@ import type { HistoryMetadata } from '@/app/page';
 import { MaskEditor } from '@/components/mask-editor';
 import { TaskNode, TaskNodeActionsProvider, type TaskNodeActions, type TaskNodeType } from '@/components/canvas/task-node';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from '@/components/ui/dialog';
 import {
     createTaskData,
     DEFAULT_TASK_PARAMS,
@@ -232,6 +239,13 @@ function CanvasFlow({
     const runNodeRef = React.useRef<((id: string) => Promise<void>) | null>(null);
     const [showHint, setShowHint] = React.useState(false);
     const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+    /** Pending destructive action, shown in an in-app dialog instead of window.confirm. */
+    const [pendingConfirm, setPendingConfirm] = React.useState<{
+        title: string;
+        body: string;
+        confirmLabel: string;
+        run: () => void;
+    } | null>(null);
 
     React.useEffect(() => {
         queueMicrotask(() => setShowHint(window.localStorage.getItem(HINT_KEY) !== '1'));
@@ -895,15 +909,25 @@ function CanvasFlow({
         [addNode, screenToFlowPosition]
     );
 
-    const deleteNode = React.useCallback(
+    const deleteNodeNow = React.useCallback(
         (id: string) => {
-            if (!window.confirm(t('Delete this node? You can undo this with Ctrl+Z.'))) return;
-            explicitClear.current = true;
             snapshot();
             void db.masks.delete(id).catch((error) => console.error('Failed to drop the node mask:', error));
             setNodes((prev) => prev.filter((node) => node.id !== id));
         },
-        [setNodes, snapshot, t]
+        [setNodes, snapshot]
+    );
+
+    const deleteNode = React.useCallback(
+        (id: string) => {
+            setPendingConfirm({
+                title: t('Delete node'),
+                body: t('Delete this node? You can undo this with Ctrl+Z.'),
+                confirmLabel: t('Delete'),
+                run: () => deleteNodeNow(id)
+            });
+        },
+        [deleteNodeNow, t]
     );
 
     /** Drops one source picture from an edit node (the "broken source" escape hatch). */
@@ -965,6 +989,29 @@ function CanvasFlow({
         },
         [findFreePosition, setNodes, snapshot]
     );
+
+    /** Keyboard shortcuts beyond React Flow's own: run and delete whatever is selected. */
+    React.useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+
+            const selectedNode = nodesRef.current.find((node) => node.selected);
+            if (!selectedNode) return;
+
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                runNode(selectedNode.id);
+            }
+            if ((event.key === 'Delete' || event.key === 'Backspace') && !event.metaKey && !event.ctrlKey) {
+                event.preventDefault();
+                deleteNode(selectedNode.id);
+            }
+        };
+
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [deleteNode, runNode]);
 
     /** React Flow's own delete (select an edge + Backspace) removes the source it stands for. */
     const onEdgesChange = React.useCallback(
@@ -1087,13 +1134,24 @@ function CanvasFlow({
         );
     }, [onNotify, setNodes, t]);
 
-    const clearCanvas = React.useCallback(() => {
-        if (!window.confirm(t('Clear the whole canvas? You can undo this with Ctrl+Z.'))) return;
-        explicitClear.current = true;
+    const runClearCanvas = React.useCallback(() => {
         snapshot();
         void db.masks.clear().catch((error) => console.error('Failed to clear masks:', error));
         setNodes([]);
-    }, [setNodes, snapshot, t]);
+    }, [setNodes, snapshot]);
+
+    /** Asks first — in an app dialog, matching the history/cleanup flows instead of window.confirm. */
+    const clearCanvas = React.useCallback(() => {
+        setPendingConfirm({
+            title: t('Clear canvas'),
+            body: t('Clear the whole canvas? You can undo this with Ctrl+Z.'),
+            confirmLabel: t('Clear canvas'),
+            run: () => {
+                explicitClear.current = true;
+                runClearCanvas();
+            }
+        });
+    }, [runClearCanvas, t]);
 
     /** Writes the canvas to a JSON file so a bad day is recoverable. */
     const exportCanvas = React.useCallback(() => {
@@ -1133,23 +1191,34 @@ function CanvasFlow({
                     onNotify?.(t('That file contains no canvas nodes.'), 'error');
                     return;
                 }
-                if (!window.confirm(t('Replace the current canvas with {count} node(s) from this file?', { count: imported.length }))) {
-                    return;
-                }
-                snapshot();
-                explicitClear.current = true;
-                setNodes(
-                    imported.map((node) => ({
-                        ...node,
-                        type: 'task',
-                        selected: false,
-                        data: {
-                            ...node.data,
-                            status: node.data.status === 'running' || node.data.status === 'queued' ? 'idle' : node.data.status
-                        }
-                    })) as TaskNodeType[]
-                );
-                onNotify?.(t('Imported {count} node(s).', { count: imported.length }), 'success');
+                setPendingConfirm({
+                    title: t('Import'),
+                    body: t('Replace the current canvas with {count} node(s) from this file?', {
+                        count: imported.length
+                    }),
+                    confirmLabel: t('Import'),
+                    run: () => {
+                        snapshot();
+                        explicitClear.current = true;
+                        setNodes(
+                            imported.map((node) => ({
+                                ...node,
+                                type: 'task',
+                                selected: false,
+                                data: {
+                                    ...node.data,
+                                    // A file exported mid-run must not come back as "running".
+                                    status:
+                                        node.data.status === 'running' || node.data.status === 'queued'
+                                            ? 'idle'
+                                            : node.data.status
+                                }
+                            })) as TaskNodeType[]
+                        );
+                        window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.5 }), 80);
+                        onNotify?.(t('Imported {count} node(s).', { count: imported.length }), 'success');
+                    }
+                });
             } catch (error) {
                 console.error('Canvas import failed:', error);
                 onNotify?.(t('That file is not a valid canvas export.'), 'error');
@@ -1320,6 +1389,36 @@ function CanvasFlow({
                     )}
                 </div>
             </div>
+
+            <Dialog open={!!pendingConfirm} onOpenChange={(open) => !open && setPendingConfirm(null)}>
+                <DialogContent className='border-slate-200 bg-white text-slate-900 sm:max-w-md'>
+                    <DialogHeader>
+                        <DialogTitle className='text-base'>{pendingConfirm?.title}</DialogTitle>
+                        <DialogDescription className='pt-1 text-slate-600'>{pendingConfirm?.body}</DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className='gap-2 sm:justify-end'>
+                        <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            onClick={() => setPendingConfirm(null)}
+                            className='border-slate-300 text-slate-600 hover:bg-slate-200 hover:text-slate-900'>
+                            {t('Cancel')}
+                        </Button>
+                        <Button
+                            type='button'
+                            size='sm'
+                            onClick={() => {
+                                const action = pendingConfirm?.run;
+                                setPendingConfirm(null);
+                                action?.();
+                            }}
+                            className='bg-red-600 text-white hover:bg-red-500'>
+                            {pendingConfirm?.confirmLabel ?? t('Confirm')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <TaskNodeActionsProvider actions={actions}>
                 <ReactFlow
