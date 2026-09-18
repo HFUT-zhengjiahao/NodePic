@@ -49,6 +49,8 @@ export type CanvasTaskData = {
     images: CanvasTaskImage[];
     /** Which of `images` the node is showing — also what "derive" and "connect" act on. */
     viewIndex?: number;
+    /** Collapsed nodes keep the picture but hide the prompt editor and the parameter rows. */
+    collapsed?: boolean;
     status: CanvasTaskStatus;
     error: string | null;
     durationMs: number | null;

@@ -103,5 +103,13 @@ export const canvas: Record<string, string> = {
     '{count} nodes': '{count} 个节点',
     'Ctrl+V pastes a picture into a new node': 'Ctrl+V 可粘贴图片建节点',
     'Pasted {count} picture(s) into new node(s).': '已把粘贴的 {count} 张图片建成节点。',
+    'Collapse node': '折叠节点（只留图片和一行提示词）',
+    'Expand node': '展开节点',
+    'Collapse all': '全部折叠',
+    'Expand all': '全部展开',
+    'Collapse or expand every node': '一键折叠或展开所有节点',
+    'Collapsed every node.': '已折叠全部节点。',
+    'Expanded every node.': '已展开全部节点。',
+    'No prompt yet': '（还没有提示词）',
     'An unexpected error occurred.': '出错了，请重试。'
 };

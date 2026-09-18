@@ -34,7 +34,19 @@ import {
     type Node
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Brush, Download, ImagePlus, LayoutGrid, Plus, Sparkles, Trash2, Undo2, Upload } from 'lucide-react';
+import {
+    Brush,
+    ChevronsDownUp,
+    ChevronsUpDown,
+    Download,
+    ImagePlus,
+    LayoutGrid,
+    Plus,
+    Sparkles,
+    Trash2,
+    Undo2,
+    Upload
+} from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -897,6 +909,16 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
         [removeSource]
     );
 
+    /** Collapses or expands every node at once — handy on a board full of long prompts. */
+    const toggleCollapseAll = React.useCallback(() => {
+        const shouldCollapse = nodesRef.current.some((node) => !node.data.collapsed);
+        setNodes((prev) => prev.map((node) => ({ ...node, data: { ...node.data, collapsed: shouldCollapse } })));
+        onNotify?.(
+            shouldCollapse ? t('Collapsed every node.') : t('Expanded every node.'),
+            'info'
+        );
+    }, [onNotify, setNodes, t]);
+
     const clearCanvas = React.useCallback(() => {
         if (!window.confirm(t('Clear the whole canvas? You can undo this with Ctrl+Z.'))) return;
         explicitClear.current = true;
@@ -1058,6 +1080,21 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
                     onClick={() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 })}
                     className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
                     <LayoutGrid className='mr-1.5 h-4 w-4' /> {t('Fit view')}
+                </Button>
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    disabled={nodes.length === 0}
+                    onClick={toggleCollapseAll}
+                    title={t('Collapse or expand every node')}
+                    className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
+                    {nodes.some((node) => !node.data.collapsed) ? (
+                        <ChevronsDownUp className='mr-1.5 h-4 w-4' />
+                    ) : (
+                        <ChevronsUpDown className='mr-1.5 h-4 w-4' />
+                    )}
+                    {nodes.some((node) => !node.data.collapsed) ? t('Collapse all') : t('Expand all')}
                 </Button>
                 <Button
                     type='button'

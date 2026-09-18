@@ -9,6 +9,8 @@ import { getPresetDimensions, type SizePreset } from '@/lib/size-utils';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import {
     Brush,
+    ChevronDown,
+    ChevronUp,
     Clock,
     CopyPlus,
     Download,
@@ -77,6 +79,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
     const { t } = useI18n();
     const actions = useTaskNodeActions();
     const [showParams, setShowParams] = React.useState(false);
+    const collapsed = Boolean(data.collapsed);
 
     const isRunning = data.status === 'running';
     const isQueued = data.status === 'queued';
@@ -100,9 +103,16 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
 
     return (
         <div
+            onClick={(event) => {
+                // A collapsed node opens on click; the chevron and the buttons keep their own meaning.
+                if (!collapsed) return;
+                const target = event.target as HTMLElement;
+                if (target.closest('button, a, input, textarea, select')) return;
+                actions.onPatch(id, { collapsed: false });
+            }}
             className={`w-[380px] overflow-hidden rounded-xl border bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.06),0_14px_36px_-24px_rgba(15,23,42,0.35)] transition-shadow ${
-                selected ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-slate-200'
-            }`}>
+                collapsed ? 'cursor-pointer' : ''
+            } ${selected ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-slate-200'}`}>
             <Handle
                 type='target'
                 position={Position.Left}
@@ -134,6 +144,13 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                     </select>
                 )}
                 {isImage && <span className='ml-auto' />}
+                <button
+                    type='button'
+                    className='nodrag rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700'
+                    title={collapsed ? t('Expand node') : t('Collapse node')}
+                    onClick={() => actions.onPatch(id, { collapsed: !collapsed })}>
+                    {collapsed ? <ChevronDown className='h-3.5 w-3.5' /> : <ChevronUp className='h-3.5 w-3.5' />}
+                </button>
                 <button
                     type='button'
                     className='nodrag rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600'
@@ -209,7 +226,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
             )}
 
             {/* result */}
-            <div className='relative h-[210px] w-full bg-slate-50'>
+            <div className={`relative w-full bg-slate-50 ${collapsed ? 'h-[132px]' : 'h-[210px]'}`}>
                 {isQueued && !firstImage ? (
                     <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-500'>
                         <Clock className='h-6 w-6 text-amber-500' />
@@ -299,6 +316,49 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
             </div>
 
             {/* prompt + actions */}
+            {collapsed ? (
+                <div className='space-y-1.5 px-3 py-2'>
+                    <p className='line-clamp-2 text-[12px] leading-snug text-slate-500'>
+                        {data.prompt.trim() || t('No prompt yet')}
+                    </p>
+                    <div className='flex items-center gap-1'>
+                        {!isImage && (
+                            <button
+                                type='button'
+                                title={isEdit ? t('Edit Image') : t('Generate')}
+                                disabled={isRunning || isQueued || !data.prompt.trim()}
+                                onClick={() => actions.onRun(id)}
+                                className='nodrag rounded-md bg-indigo-600 p-1.5 text-white shadow-sm hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
+                                {isRunning || isQueued ? (
+                                    <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                ) : (
+                                    <Play className='h-3.5 w-3.5' />
+                                )}
+                            </button>
+                        )}
+                        <button
+                            type='button'
+                            title={t('Use as source for edit')}
+                            disabled={!hasImage || isRunning}
+                            onClick={() => actions.onDeriveEdit(id)}
+                            className='nodrag rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40'>
+                            <Shuffle className='h-3.5 w-3.5' />
+                        </button>
+                        <button
+                            type='button'
+                            title={isEdit ? t('Mask') : t('Masks only apply to edit nodes')}
+                            disabled={!maskTarget || isRunning}
+                            onClick={() => maskTarget && actions.onOpenMask(id, maskTarget)}
+                            className='nodrag rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40'>
+                            <Brush className='h-3.5 w-3.5' />
+                        </button>
+                        <span className='ml-auto flex items-center gap-2 text-[11px] text-slate-400'>
+                            {data.durationMs ? <span>{(data.durationMs / 1000).toFixed(1)}s</span> : null}
+                            {data.costDetails ? <span>${data.costDetails.estimated_cost_usd.toFixed(4)}</span> : null}
+                        </span>
+                    </div>
+                </div>
+            ) : (
             <div className='space-y-2 px-3 py-2.5'>
                 {!isImage && (
                     <Textarea
@@ -310,7 +370,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                                 : t('e.g., A photorealistic cat astronaut floating in space')
                         }
                         disabled={isRunning}
-                        className='nodrag nowheel min-h-[64px] resize-y rounded-lg border-slate-200 bg-white text-[13px] text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
+                        className='nodrag nowheel max-h-[180px] min-h-[64px] resize-y overflow-y-auto rounded-lg border-slate-200 bg-white text-[13px] text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
                     />
                 )}
 
@@ -464,6 +524,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                     </div>
                 )}
             </div>
+            )}
 
             <Handle
                 type='source'
