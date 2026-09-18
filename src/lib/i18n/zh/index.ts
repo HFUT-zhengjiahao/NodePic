@@ -1,3 +1,4 @@
+import { canvas } from '@/lib/i18n/zh/canvas';
 import { common } from '@/lib/i18n/zh/common';
 import { dialogs } from '@/lib/i18n/zh/dialogs';
 import { editingForm } from '@/lib/i18n/zh/editing-form';
@@ -14,6 +15,7 @@ import { page } from '@/lib/i18n/zh/page';
 export const zh: Record<string, string> = {
     ...common,
     ...dialogs,
+    ...canvas,
     ...page,
     ...generationForm,
     ...imageOptions,

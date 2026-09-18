@@ -1,0 +1,30 @@
+/** Translations for the React Flow canvas view (src/components/canvas/*). */
+export const canvas: Record<string, string> = {
+    Canvas: '画布',
+    List: '列表',
+    'New generate node': '新建生成节点',
+    'New edit node': '新建编辑节点',
+    'Fit view': '适应视图',
+    'Clear canvas': '清空画布',
+    'Clear the whole canvas? This cannot be undone.': '确定清空整个画布吗？此操作无法撤销。',
+    'Delete this node? This cannot be undone.': '确定删除这个节点吗？此操作无法撤销。',
+    'Delete node': '删除节点',
+    'Source Image(s)': '源图',
+    'None yet — click “Use as source” on another node': '还没有源图 —— 在别的节点上点「以此为源图」',
+    'Use as source for edit': '以此为源图编辑',
+    'Mask applied': '已应用蒙版',
+    'A mask is already attached to this node.': '这个节点已经挂了蒙版。',
+    'Write a prompt, then run this node.': '写下提示词，然后运行这个节点。',
+    'Your canvas is empty': '画布还是空的',
+    'Create a generate node to make an image, then click “Use as source for edit” on it to branch off an edit node.':
+        '先新建一个生成节点出图，再在它上面点「以此为源图编辑」，就会长出一个编辑节点。',
+    'Expand': '放大查看',
+    'Download': '下载',
+    'images': '张图片',
+    'Show parameters': '显示参数',
+    'Hide parameters': '隐藏参数',
+    'Generating…': '生成中…',
+    'Loading…': '加载中…',
+    'Masks only apply to edit nodes': '蒙版只对编辑节点生效',
+    'An unexpected error occurred.': '出错了，请重试。'
+};

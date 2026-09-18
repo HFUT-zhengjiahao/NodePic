@@ -120,3 +120,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Canvas view: nodes must stay clickable wherever they overlap the floating helpers.
+   The nodes live inside .react-flow__viewport (its own stacking context), so the viewport itself has
+   to sit above the minimap; the minimap therefore becomes a pure overview (no pointer events). */
+.canvas-shell .react-flow__viewport {
+  z-index: 6;
+}
+.canvas-shell .react-flow__minimap {
+  z-index: 5;
+  pointer-events: none;
+}
+.canvas-shell .react-flow__controls {
+  z-index: 5;
+}

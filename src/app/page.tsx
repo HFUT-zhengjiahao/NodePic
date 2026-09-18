@@ -1,6 +1,7 @@
 'use client';
 
 import { EditingForm, type EditingFormData } from '@/components/editing-form';
+import { CanvasBoard } from '@/components/canvas/canvas-board';
 import { GenerationForm, type GenerationFormData } from '@/components/generation-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
@@ -22,6 +23,7 @@ import {
 } from '@/lib/models';
 import { getPresetDimensions } from '@/lib/size-utils';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { List, Workflow } from 'lucide-react';
 import * as React from 'react';
 
 type HistoryImage = {
@@ -97,6 +99,30 @@ export default function HomePage() {
     const [skipDeleteConfirmation, setSkipDeleteConfirmation] = React.useState<boolean>(false);
     const [itemToDeleteConfirm, setItemToDeleteConfirm] = React.useState<HistoryMetadata | null>(null);
     const [dialogCheckboxStateSkipConfirm, setDialogCheckboxStateSkipConfirm] = React.useState<boolean>(false);
+    // Canvas is the primary workspace; the classic form lives behind the "List" switch.
+    const [viewMode, setViewMode] = React.useState<'canvas' | 'list'>('canvas');
+    const [canvasMounted, setCanvasMounted] = React.useState(false);
+
+    React.useEffect(() => {
+        queueMicrotask(() => {
+            const stored = window.localStorage.getItem('gptImageViewMode');
+            if (stored === 'list' || stored === 'canvas') {
+                setViewMode(stored);
+            }
+        });
+    }, []);
+
+    React.useEffect(() => {
+        if (viewMode === 'canvas') {
+            setCanvasMounted(true);
+        }
+        window.localStorage.setItem('gptImageViewMode', viewMode);
+    }, [viewMode]);
+
+    /** Lets canvas nodes contribute to the same history the list view shows. */
+    const handleCanvasTaskComplete = React.useCallback((entry: HistoryMetadata) => {
+        setHistory((prev) => [entry, ...prev]);
+    }, []);
 
     const allDbImages = useLiveQuery<ImageRecord[] | undefined>(() => db.images.toArray(), []);
 
@@ -804,9 +830,37 @@ export default function HomePage() {
 
     return (
         <main className='flex min-h-screen flex-col items-center bg-slate-50 p-4 text-slate-900 md:p-8 lg:p-12'>
-            <div className='mb-4 flex w-full max-w-screen-2xl items-start justify-end gap-3'>
-                <ShutdownButton />
-                <LanguageToggle />
+            <div className='mb-4 flex w-full max-w-screen-2xl items-start justify-between gap-3'>
+                <div className='flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm'>
+                    <button
+                        type='button'
+                        onClick={() => setViewMode('canvas')}
+                        aria-pressed={viewMode === 'canvas'}
+                        className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] transition-colors ${
+                            viewMode === 'canvas'
+                                ? 'bg-indigo-50 text-indigo-600'
+                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                        }`}>
+                        <Workflow className='h-3.5 w-3.5' />
+                        {t('Canvas')}
+                    </button>
+                    <button
+                        type='button'
+                        onClick={() => setViewMode('list')}
+                        aria-pressed={viewMode === 'list'}
+                        className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] transition-colors ${
+                            viewMode === 'list'
+                                ? 'bg-indigo-50 text-indigo-600'
+                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                        }`}>
+                        <List className='h-3.5 w-3.5' />
+                        {t('List')}
+                    </button>
+                </div>
+                <div className='flex items-start gap-3'>
+                    <ShutdownButton />
+                    <LanguageToggle />
+                </div>
             </div>
             <PasswordDialog
                 isOpen={isPasswordDialogOpen}
@@ -821,7 +875,7 @@ export default function HomePage() {
                         : t('Set a password to use for API requests.')
                 }
             />
-            <div className='w-full max-w-screen-2xl space-y-6'>
+            <div className={viewMode === 'list' ? 'w-full max-w-screen-2xl space-y-6' : 'hidden'}>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
                     <div className='relative flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
                         <div className={mode === 'generate' ? 'block h-full w-full' : 'hidden'}>
@@ -954,6 +1008,12 @@ export default function HomePage() {
                     />
                 </div>
             </div>
+
+            {canvasMounted && (
+                <div className={viewMode === 'canvas' ? 'w-full max-w-screen-2xl' : 'hidden'}>
+                    <CanvasBoard onTaskComplete={handleCanvasTaskComplete} passwordHash={clientPasswordHash} />
+                </div>
+            )}
         </main>
     );
 }
