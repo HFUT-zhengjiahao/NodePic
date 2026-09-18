@@ -111,5 +111,8 @@ export const canvas: Record<string, string> = {
     'Collapsed every node.': '已折叠全部节点。',
     'Expanded every node.': '已展开全部节点。',
     'No prompt yet': '（还没有提示词）',
+    'Auto arrange': '自动排版',
+    'Lay every node out by lineage with no overlap': '按血缘关系重新排列所有节点，保证不重叠',
+    'Arranged {count} node(s) with no overlap.': '已重排 {count} 个节点，互不重叠。',
     'An unexpected error occurred.': '出错了，请重试。'
 };

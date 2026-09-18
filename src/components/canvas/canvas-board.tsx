@@ -40,6 +40,7 @@ import {
     ChevronsUpDown,
     Download,
     ImagePlus,
+    LayoutDashboard,
     LayoutGrid,
     Plus,
     Sparkles,
@@ -909,6 +910,90 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
         [removeSource]
     );
 
+    /**
+     * Lays the graph out left-to-right by lineage and removes every overlap.
+     *
+     * Nodes are grouped into layers by walking their sources (a node always sits one column right of
+     * the deepest node it depends on), then stacked inside the column using their *measured* height —
+     * collapsed and expanded cards differ by hundreds of pixels, so guessing a constant height would
+     * leave gaps or overlaps. Columns are ordered by the average y of their parents to keep the
+     * lineage lines short.
+     */
+    const autoArrange = React.useCallback(() => {
+        const current = nodesRef.current;
+        if (current.length === 0) return;
+        snapshot();
+
+        const NODE_WIDTH = 380;
+        const GAP_X = 110;
+        const GAP_Y = 56;
+        const fallbackHeight = 340;
+        const heightOf = (node: TaskNodeType) => node.measured?.height ?? fallbackHeight;
+
+        const producerOf = new Map<string, string>();
+        for (const node of current) {
+            for (const image of node.data.images) {
+                if (!producerOf.has(image.filename)) producerOf.set(image.filename, node.id);
+            }
+        }
+        const parentsOf = new Map<string, string[]>();
+        for (const node of current) {
+            const parents = node.data.sourceFilenames
+                .map((filename) => producerOf.get(filename))
+                .filter((id): id is string => Boolean(id) && id !== node.id);
+            parentsOf.set(node.id, [...new Set(parents)]);
+        }
+
+        // Longest-path layering, with a visited set so an accidental cycle cannot hang the layout.
+        const layers = new Map<string, number>();
+        const layerOf = (id: string, seen: Set<string>): number => {
+            const known = layers.get(id);
+            if (known !== undefined) return known;
+            if (seen.has(id)) return 0;
+            seen.add(id);
+            const parents = parentsOf.get(id) ?? [];
+            const value = parents.length === 0 ? 0 : Math.max(...parents.map((parent) => layerOf(parent, seen))) + 1;
+            layers.set(id, value);
+            return value;
+        };
+        for (const node of current) layerOf(node.id, new Set());
+
+        const columns = new Map<number, TaskNodeType[]>();
+        for (const node of current) {
+            const index = layers.get(node.id) ?? 0;
+            const column = columns.get(index) ?? [];
+            column.push(node);
+            columns.set(index, column);
+        }
+
+        const placed = new Map<string, { x: number; y: number }>();
+        const averageParentY = (node: TaskNodeType) => {
+            const parents = parentsOf.get(node.id) ?? [];
+            const ys = parents.map((parent) => placed.get(parent)?.y).filter((y): y is number => y !== undefined);
+            return ys.length > 0 ? ys.reduce((sum, y) => sum + y, 0) / ys.length : node.position.y;
+        };
+
+        let cursorX = 0;
+        for (const index of [...columns.keys()].sort((a, b) => a - b)) {
+            const column = columns.get(index) as TaskNodeType[];
+            column.sort((a, b) => averageParentY(a) - averageParentY(b));
+
+            const totalHeight =
+                column.reduce((sum, node) => sum + heightOf(node), 0) + GAP_Y * Math.max(0, column.length - 1);
+            // Centre every column on the same axis so the tree reads as one band.
+            let cursorY = -totalHeight / 2;
+            for (const node of column) {
+                placed.set(node.id, { x: cursorX, y: cursorY });
+                cursorY += heightOf(node) + GAP_Y;
+            }
+            cursorX += NODE_WIDTH + GAP_X;
+        }
+
+        setNodes((prev) => prev.map((node) => (placed.has(node.id) ? { ...node, position: placed.get(node.id)! } : node)));
+        window.setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.2 }), 60);
+        onNotify?.(t('Arranged {count} node(s) with no overlap.', { count: placed.size }), 'success');
+    }, [fitView, onNotify, setNodes, snapshot, t]);
+
     /** Collapses or expands every node at once — handy on a board full of long prompts. */
     const toggleCollapseAll = React.useCallback(() => {
         const shouldCollapse = nodesRef.current.some((node) => !node.data.collapsed);
@@ -1077,9 +1162,19 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
                     type='button'
                     variant='outline'
                     size='sm'
-                    onClick={() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 })}
+                    onClick={() => fitView({ padding: 0.2, duration: 300, minZoom: 0.25 })}
                     className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
                     <LayoutGrid className='mr-1.5 h-4 w-4' /> {t('Fit view')}
+                </Button>
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    disabled={nodes.length === 0}
+                    onClick={autoArrange}
+                    title={t('Lay every node out by lineage with no overlap')}
+                    className='pointer-events-auto border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
+                    <LayoutDashboard className='mr-1.5 h-4 w-4' /> {t('Auto arrange')}
                 </Button>
                 <Button
                     type='button'
@@ -1150,7 +1245,7 @@ function CanvasFlow({ canvasId, onSaved, onTaskComplete, onNotify, passwordHash 
                     connectionLineStyle={{ stroke: '#818cf8', strokeWidth: 2 }}
                     nodeTypes={nodeTypes}
                     fitView
-                    fitViewOptions={{ padding: 0.2, minZoom: 0.85 }}
+                    fitViewOptions={{ padding: 0.2, minZoom: 0.25 }}
                     zoomOnDoubleClick={false}
                     minZoom={0.15}
                     maxZoom={1.6}
