@@ -119,10 +119,53 @@ async function acquireSlot(): Promise<() => void> {
 
 export async function POST(request: NextRequest) {
     const releaseSlot = await acquireSlot();
+    let slotHandedToStream = false;
+
     try {
-        return await handleImageRequest(request);
+        const response = await handleImageRequest(request);
+        const isEventStream = response.headers.get('content-type')?.includes('text/event-stream') === true;
+
+        if (!isEventStream || !response.body) {
+            return response;
+        }
+
+        // An SSE response is returned while the upstream request is still being consumed, so releasing
+        // the slot here would let MAX_CONCURRENT_REQUESTS be exceeded. The wrapper below owns the slot
+        // and gives it back when the stream actually finishes, errors or is cancelled.
+        slotHandedToStream = true;
+        const reader = response.body.getReader();
+        let released = false;
+        const release = () => {
+            if (released) return;
+            released = true;
+            releaseSlot();
+        };
+
+        return new Response(
+            new ReadableStream({
+                async pull(controller) {
+                    try {
+                        const { done, value } = await reader.read();
+                        if (done) {
+                            controller.close();
+                            release();
+                            return;
+                        }
+                        controller.enqueue(value);
+                    } catch (error) {
+                        controller.error(error);
+                        release();
+                    }
+                },
+                cancel(reason) {
+                    void reader.cancel(reason);
+                    release();
+                }
+            }),
+            { status: response.status, headers: response.headers }
+        );
     } finally {
-        releaseSlot();
+        if (!slotHandedToStream) releaseSlot();
     }
 }
 
@@ -265,6 +308,22 @@ async function handleImageRequest(request: NextRequest) {
                                 }
                             }
 
+                            // Streamed files are written straight to disk, so they must be registered
+                            // here too — otherwise the registry never learns about them and cleanup can
+                            // never reclaim them.
+                            if (effectiveStorageMode === 'fs' && completedImages.length > 0) {
+                                try {
+                                    await registerImages(
+                                        completedImages.map((image) => ({
+                                            filename: image.filename,
+                                            bytes: Buffer.from(image.b64_json || '', 'base64').length
+                                        }))
+                                    );
+                                } catch (registerError) {
+                                    console.error('Failed to register streamed images:', registerError);
+                                }
+                            }
+
                             // Send final done event with all images and usage
                             const doneEvent: StreamingEvent = {
                                 type: 'done',
@@ -392,6 +451,22 @@ async function handleImageRequest(request: NextRequest) {
                                     imageIndex++;
 
                                     finalUsage = event.usage;
+                                }
+                            }
+
+                            // Streamed files are written straight to disk, so they must be registered
+                            // here too — otherwise the registry never learns about them and cleanup can
+                            // never reclaim them.
+                            if (effectiveStorageMode === 'fs' && completedImages.length > 0) {
+                                try {
+                                    await registerImages(
+                                        completedImages.map((image) => ({
+                                            filename: image.filename,
+                                            bytes: Buffer.from(image.b64_json || '', 'base64').length
+                                        }))
+                                    );
+                                } catch (registerError) {
+                                    console.error('Failed to register streamed images:', registerError);
                                 }
                             }
 

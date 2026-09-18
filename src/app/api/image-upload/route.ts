@@ -51,6 +51,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Storage is unavailable.' }, { status: 500 });
     }
 
+    // Validation happens for the whole batch before anything is written: rejecting the third file
+    // after storing the first two used to leave those files on disk with no registry entry and no way
+    // to reference them, i.e. invisible litter that cleanup refused to touch.
     for (const file of uploads) {
         const extension = ALLOWED_TYPES[file.type];
         if (!extension) {
@@ -65,13 +68,18 @@ export async function POST(request: NextRequest) {
                 { status: 413 }
             );
         }
+    }
 
+    for (const file of uploads) {
+        const extension = ALLOWED_TYPES[file.type] as string;
         const filename = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
         const buffer = Buffer.from(await file.arrayBuffer());
         try {
             await fs.writeFile(path.join(outputDir, filename), buffer);
         } catch (error) {
             console.error(`Failed to store upload ${filename}:`, error);
+            // Roll the batch back so a partial failure leaves nothing behind.
+            await Promise.allSettled(stored.map((entry) => fs.rm(path.join(outputDir, entry.filename), { force: true })));
             return NextResponse.json({ error: 'Failed to store the uploaded image.' }, { status: 500 });
         }
 

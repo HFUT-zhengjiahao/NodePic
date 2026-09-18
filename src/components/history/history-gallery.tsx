@@ -18,6 +18,7 @@ import {
     HardDrive,
     ImagePlus,
     Maximize2,
+    RefreshCw,
     Search,
     Sparkles,
     Trash2
@@ -33,7 +34,8 @@ export type HistoryGalleryProps = {
     onDelete: (item: HistoryMetadata) => void;
     onClearHistory: () => void;
     onCleanupUnusedImages: () => void;
-    cleanupDisabled?: boolean;
+    /** Re-creates entries for pictures that are on disk but missing from the list. */
+    onRebuildFromDisk: () => void;
     /** Puts the picture on the active canvas as a new node. */
     onSendToCanvas: (filename: string) => void;
     skipConfirm: boolean;
@@ -58,7 +60,7 @@ export function HistoryGallery({
     onDelete,
     onClearHistory,
     onCleanupUnusedImages,
-    cleanupDisabled = false,
+    onRebuildFromDisk,
     onSendToCanvas,
     skipConfirm,
     onSkipConfirmChange
@@ -155,16 +157,21 @@ export function HistoryGallery({
                     type='button'
                     variant='outline'
                     size='sm'
-                    disabled={cleanupDisabled}
-                    title={
-                        cleanupDisabled
-                            ? t('Disk cleanup is only available in filesystem storage mode.')
-                            : t('Delete registered image files that no history entry or canvas node uses')
-                    }
+                    title={t('Delete registered image files that no history entry or canvas node uses')}
                     onClick={onCleanupUnusedImages}
                     className='h-8 border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
                     <HardDrive className='mr-1.5 h-3.5 w-3.5' />
                     {t('Clean up orphaned files on disk')}
+                </Button>
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    title={t('Re-create entries for pictures that are on disk but missing from this list')}
+                    onClick={onRebuildFromDisk}
+                    className='h-8 border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900'>
+                    <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
+                    {t('Rebuild from disk')}
                 </Button>
                 {history.length > 0 && (
                     <Button
@@ -223,6 +230,11 @@ export function HistoryGallery({
                                                 <span className='absolute top-1.5 left-1.5 rounded-full bg-slate-900/70 px-1.5 py-0.5 text-[10px] text-white'>
                                                     {entry.mode === 'edit' ? t('Edit') : t('Generate')}
                                                 </span>
+                                                {entry.rebuilt && (
+                                                    <span className='absolute bottom-1.5 left-1.5 rounded-full bg-amber-500/90 px-1.5 py-0.5 text-[10px] text-white'>
+                                                        {t('Recovered')}
+                                                    </span>
+                                                )}
                                                 {entry.images.length > 1 && (
                                                     <span className='absolute top-1.5 right-1.5 rounded-full bg-slate-900/70 px-1.5 py-0.5 text-[10px] text-white'>
                                                         {index + 1}/{entry.images.length}

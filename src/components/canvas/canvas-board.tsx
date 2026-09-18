@@ -350,12 +350,13 @@ function CanvasFlow({
             const verify = async (filename: string) => {
                 if (exists.has(filename)) return;
                 try {
+                    // HEAD: the server answers from the file's metadata, so a "does this still exist?"
+                    // sweep no longer downloads every picture on the board just to check.
                     const response = await fetch(`/api/image/${encodeURIComponent(filename)}`, {
-                        method: 'GET',
+                        method: 'HEAD',
                         cache: 'no-store'
                     });
                     exists.set(filename, response.ok);
-                    await response.body?.cancel();
                 } catch {
                     exists.set(filename, false);
                 }
@@ -1111,8 +1112,12 @@ function CanvasFlow({
         const link = document.createElement('a');
         link.href = url;
         link.download = `canvas-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+        // The anchor has to be in the document, and the object URL must outlive the click: revoking it
+        // immediately makes Safari cancel the download.
+        document.body.appendChild(link);
         link.click();
-        URL.revokeObjectURL(url);
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
         onNotify?.(t('Canvas exported.'), 'success');
     }, [onNotify, t]);
 

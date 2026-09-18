@@ -36,7 +36,6 @@ export const canvas: Record<string, string> = {
     'This node’s image file was deleted. Run it again to recreate the picture.': '这个节点的图片文件已被删除，重新运行即可再次生成。',
     'Clean up orphaned files on disk': '清理磁盘上的孤儿图片',
     'Delete registered image files that no history entry or canvas node uses': '删除服务端已登记、但历史记录和画布都不再引用的图片文件',
-    'Disk cleanup is only available in filesystem storage mode.': '只有文件系统存储模式才需要清理磁盘。',
     'These files are registered on the server but nothing references them any more.':
         '这些文件已在服务端登记，但历史记录和画布都不再引用它们。',
     'and {count} more': '还有 {count} 个',
@@ -210,5 +209,11 @@ export const canvas: Record<string, string> = {
     'Saving now replaces the whole mask with the strokes you just painted.': '保存会用刚画的笔画整体替换原蒙版。',
     'A mask is already attached to this node — it is shown below; painting replaces it.':
         '该节点已有蒙版，下方即为当前蒙版；重新涂抹会替换它。',
+    'Rebuild from disk': '按磁盘重建',
+    'Re-create entries for pictures that are on disk but missing from this list':
+        '为磁盘上存在、但列表里缺失的图片补建记录',
+    'History already covers every picture on disk.': '磁盘上的图片都已在历史记录中。',
+    'Recovered {count} picture(s) from disk.': '已从磁盘恢复 {count} 张图片的记录。',
+    'Recovered': '已恢复',
     'An unexpected error occurred.': '出错了，请重试。'
 };

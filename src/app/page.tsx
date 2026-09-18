@@ -38,6 +38,8 @@ export type HistoryImage = {
 
 export type HistoryMetadata = {
     timestamp: number;
+    /** Set when the entry was reconstructed from the files on disk rather than from a real run. */
+    rebuilt?: boolean;
     images: HistoryImage[];
     storageModeUsed?: 'fs' | 'indexeddb';
     durationMs: number;
@@ -247,8 +249,27 @@ export default function Home() {
         [activeCanvasId, canvases, notify, persistRegistry, t]
     );
 
+    // Mirrors `canvases` for callbacks that must not re-create themselves on every registry change.
+    const activeCanvasIdRef = React.useRef('');
+    React.useEffect(() => {
+        activeCanvasIdRef.current = activeCanvasId;
+    }, [activeCanvasId]);
+
+    const canvasesRef = React.useRef<CanvasMeta[]>([]);
+    React.useEffect(() => {
+        canvasesRef.current = canvases;
+    }, [canvases]);
+
     const handleCanvasSaved = React.useCallback(() => {
         setCanvasRevision((prev) => prev + 1);
+        // Saving a node is an edit, so the sidebar's timestamp has to move with it — it used to show
+        // the creation time forever because only renaming touched `updatedAt`.
+        const next = canvasesRef.current.map((canvas) =>
+            canvas.id === activeCanvasIdRef.current ? { ...canvas, updatedAt: Date.now() } : canvas
+        );
+        setCanvases(next);
+        const registry = loadRegistry();
+        saveRegistry({ ...registry, canvases: next, activeId: activeCanvasIdRef.current });
     }, []);
 
     // --- history --------------------------------------------------------------------------------
@@ -399,6 +420,57 @@ export default function Home() {
         }
     }, [cleanupPayload, notify, t]);
 
+    /**
+     * Rebuilds history entries for pictures that exist on disk but have no record any more.
+     *
+     * The name carries the generation timestamp, so a lost entry can be reconstructed with a correct
+     * time — and, just as importantly, the file stops looking unreferenced to the cleanup pass.
+     */
+    const rebuildHistoryFromDisk = React.useCallback(async () => {
+        try {
+            const response = await fetch('/api/images-list', { cache: 'no-store' });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+
+            const known = new Set(history.flatMap((entry) => entry.images.map((image) => image.filename)));
+            const missing = (payload.files as Array<{ filename: string; modifiedAt: number }>).filter(
+                (file) => !known.has(file.filename)
+            );
+
+            if (missing.length === 0) {
+                notify(t('History already covers every picture on disk.'), 'info');
+                return;
+            }
+
+            const timestampOf = (filename: string, fallback: number) => {
+                const match = filename.match(/(?:upload-)?(\d{13})/);
+                return match ? Number(match[1]) : fallback;
+            };
+
+            const rebuilt: HistoryMetadata[] = missing.map((file) => ({
+                timestamp: timestampOf(file.filename, file.modifiedAt),
+                images: [{ filename: file.filename }],
+                storageModeUsed: 'fs',
+                durationMs: 0,
+                quality: 'high',
+                background: 'auto',
+                moderation: 'auto',
+                prompt: '',
+                mode: file.filename.startsWith('upload-') ? 'generate' : 'generate',
+                costDetails: null,
+                output_format: (file.filename.split('.').pop() ?? 'png') as HistoryMetadata['output_format'],
+                model: undefined,
+                rebuilt: true
+            }));
+
+            setHistory((prev) => [...rebuilt, ...prev].sort((a, b) => b.timestamp - a.timestamp));
+            notify(t('Recovered {count} picture(s) from disk.', { count: rebuilt.length }), 'success');
+        } catch (error) {
+            console.error('Could not rebuild the history from disk:', error);
+            notify(error instanceof Error ? error.message : t('An unexpected error occurred.'), 'error');
+        }
+    }, [history, notify, t]);
+
     const sendToCanvas = React.useCallback(
         (filename: string) => {
             setIncomingImages((prev) => ({ filenames: [filename], token: (prev?.token ?? 0) + 1 }));
@@ -488,6 +560,7 @@ export default function Home() {
                     onDelete={executeDelete}
                     onClearHistory={handleClearHistory}
                     onCleanupUnusedImages={handleCleanupUnusedImages}
+                    onRebuildFromDisk={rebuildHistoryFromDisk}
                     onSendToCanvas={sendToCanvas}
                     skipConfirm={skipDeleteConfirmation}
                     onSkipConfirmChange={updateSkipDelete}

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { CanvasTaskData, CanvasTaskParams } from '@/lib/canvas-types';
 import { useI18n } from '@/lib/i18n';
-import { GPT_IMAGE_MODELS, MAX_EDIT_IMAGES, type GptImageModel } from '@/lib/models';
+import { GPT_IMAGE_MODELS, type GptImageModel } from '@/lib/models';
 import { getPresetDimensions, type SizePreset } from '@/lib/size-utils';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import {
@@ -173,7 +173,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                                 key={filename}
                                 className='group/src relative block h-10 w-10 overflow-hidden rounded border border-slate-200 bg-white'>
                                 <Image
-                                    src={`/api/image/${filename}`}
+                                    src={`/api/image/${encodeURIComponent(filename)}`}
                                     alt={filename}
                                     width={32}
                                     height={32}
