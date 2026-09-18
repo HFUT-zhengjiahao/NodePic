@@ -245,7 +245,7 @@ export function HistoryGallery({
                                                     </span>
                                                     {cost ? <span>${(cost / entry.images.length).toFixed(4)}</span> : null}
                                                 </div>
-                                                <div className='flex items-center gap-1 opacity-0 transition-opacity group-hover/card:opacity-100'>
+                                                <div className='flex items-center gap-1 opacity-0 transition-opacity group-focus-within/card:opacity-100 group-hover/card:opacity-100'>
                                                     <button
                                                         type='button'
                                                         title={t('Expand')}

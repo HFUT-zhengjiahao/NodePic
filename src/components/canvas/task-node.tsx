@@ -146,14 +146,14 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                 {isImage && <span className='ml-auto' />}
                 <button
                     type='button'
-                    className='nodrag rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700'
+                    className='nodrag flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700'
                     title={collapsed ? t('Expand node') : t('Collapse node')}
                     onClick={() => actions.onPatch(id, { collapsed: !collapsed })}>
                     {collapsed ? <ChevronDown className='h-3.5 w-3.5' /> : <ChevronUp className='h-3.5 w-3.5' />}
                 </button>
                 <button
                     type='button'
-                    className='nodrag rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600'
+                    className='nodrag flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600'
                     title={t('Delete node')}
                     onClick={() => actions.onDelete(id)}>
                     <Trash2 className='h-3.5 w-3.5' />
@@ -184,7 +184,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                                     type='button'
                                     title={t('Remove this source image')}
                                     onClick={() => actions.onRemoveSource(id, filename)}
-                                    className='nodrag absolute top-0 right-0 flex h-[18px] w-[18px] items-center justify-center rounded-bl-md bg-slate-900/70 text-[13px] leading-none text-white transition-colors hover:bg-red-600'>
+                                    className='nodrag absolute top-0 right-0 flex h-6 w-6 items-center justify-center rounded-bl-md bg-slate-900/70 text-[15px] leading-none text-white transition-colors hover:bg-red-600'>
                                     ×
                                 </button>
                             </span>
@@ -379,7 +379,14 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         <Button
                             type='button'
                             size='sm'
-                            disabled={isRunning || isQueued || !data.prompt.trim()}
+                            disabled={
+                                isRunning || isQueued || !data.prompt.trim() || (isEdit && data.sourceFilenames.length === 0)
+                            }
+                            title={
+                                isEdit && data.sourceFilenames.length === 0
+                                    ? t('Connect or pick a source image before running an edit node.')
+                                    : undefined
+                            }
                             onClick={() => actions.onRun(id)}
                             className='nodrag h-8 flex-1 bg-indigo-600 text-[13px] text-white shadow-sm hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
                             {isRunning || isQueued ? (

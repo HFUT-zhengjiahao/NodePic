@@ -5,7 +5,6 @@ import { CanvasSidebar } from '@/components/canvas/canvas-sidebar';
 import { HistoryGallery } from '@/components/history/history-gallery';
 import { LanguageToggle } from '@/components/language-toggle';
 import { SettingsButton, type ClientDefaults } from '@/components/settings-button';
-import { ShutdownButton } from '@/components/shutdown-button';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -26,7 +25,7 @@ import {
 } from '@/lib/canvas-store';
 import { useI18n } from '@/lib/i18n';
 import { DEFAULT_GPT_IMAGE_MODEL, type GptImageModel, type ImageBackground, type ImageModeration, type ImageOutputFormat, type ImageQuality } from '@/lib/models';
-import { History as HistoryIcon, Workflow } from 'lucide-react';
+
 import * as React from 'react';
 
 // ---------------------------------------------------------------------------------------------
@@ -410,42 +409,17 @@ export default function Home() {
 
     return (
         <main className='flex min-h-screen flex-col items-center bg-slate-50 px-4 py-4 text-slate-900 md:px-8 lg:px-10'>
-            <div className='mb-3 flex w-full max-w-screen-2xl items-start justify-between gap-3'>
-                <div className='flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm'>
-                    <button
-                        type='button'
-                        onClick={() => selectView('canvas')}
-                        aria-pressed={view === 'canvas'}
-                        className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] transition-colors ${
-                            view === 'canvas'
-                                ? 'bg-indigo-50 text-indigo-600'
-                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
-                        }`}>
-                        <Workflow className='h-3.5 w-3.5' />
-                        {t('Canvas')}
-                    </button>
-                    <button
-                        type='button'
-                        onClick={() => selectView('history')}
-                        aria-pressed={view === 'history'}
-                        className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] transition-colors ${
-                            view === 'history'
-                                ? 'bg-indigo-50 text-indigo-600'
-                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
-                        }`}>
-                        <HistoryIcon className='h-3.5 w-3.5' />
-                        {t('History')}
-                    </button>
-                </div>
-                <div className='flex items-start gap-3'>
-                    <ShutdownButton />
-                    <LanguageToggle />
-                </div>
+            <div className='mb-3 flex w-full max-w-screen-2xl items-start justify-end gap-3'>
+                {/* Navigation lives in the sidebar and "shut down" lives in the settings panel, so the
+                    top bar keeps only the language switch and stays out of the way. */}
+                <LanguageToggle />
             </div>
 
             {canvasMounted && (
                 <div className={view === 'canvas' ? 'flex w-full max-w-screen-2xl gap-4' : 'hidden'}>
                     <CanvasSidebar
+                        view={view}
+                        onViewChange={selectView}
                         canvases={canvases}
                         activeId={activeCanvasId}
                         revision={canvasRevision}
@@ -481,6 +455,28 @@ export default function Home() {
                             />
                         </div>
                     </div>
+                </div>
+            )}
+
+            {view === 'history' && (
+                <div className='w-full max-w-screen-2xl'>
+                    <CanvasSidebar
+                        view={view}
+                        onViewChange={selectView}
+                        canvases={canvases}
+                        activeId={activeCanvasId}
+                        revision={canvasRevision}
+                        collapsed={isCanvasListCollapsed}
+                        onToggleCollapsed={() => setIsCanvasListCollapsed((prev) => !prev)}
+                        onSelect={(id) => {
+                            handleSelectCanvas(id);
+                            selectView('canvas');
+                        }}
+                        onCreate={handleCreateCanvas}
+                        onRename={handleRenameCanvas}
+                        onDuplicate={handleDuplicateCanvas}
+                        onDelete={handleDeleteCanvas}
+                    />
                 </div>
             )}
 

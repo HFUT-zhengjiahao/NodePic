@@ -18,6 +18,8 @@ export type MaskEditorProps = {
     imageHeight: number;
     /** Fired whenever the saved mask changes; null means "no mask". */
     onMaskChange: (file: File | null) => void;
+    /** Object URL of the mask already attached to this node, if any. */
+    initialPreviewUrl?: string | null;
     /** Fired with the generated/uploaded mask preview data URL (used to remember the state). */
     onPreviewChange?: (dataUrl: string | null) => void;
     disabled?: boolean;
@@ -33,13 +35,16 @@ export function MaskEditor({
     imageHeight,
     onMaskChange,
     onPreviewChange,
+    initialPreviewUrl = null,
     disabled = false
 }: MaskEditorProps) {
     const { t } = useI18n();
     const [brushSize, setBrushSize] = React.useState(20);
     const [drawnPoints, setDrawnPoints] = React.useState<DrawnPoint[]>([]);
-    const [isMaskSaved, setIsMaskSaved] = React.useState(false);
-    const [maskPreviewUrl, setMaskPreviewUrl] = React.useState<string | null>(null);
+    // Seeded from the stored mask so re-opening the editor shows what is actually applied instead of
+    // an empty canvas — painting one stroke used to silently replace the whole mask.
+    const [isMaskSaved, setIsMaskSaved] = React.useState(Boolean(initialPreviewUrl));
+    const [maskPreviewUrl, setMaskPreviewUrl] = React.useState<string | null>(initialPreviewUrl ?? null);
     const [isGeneratingPreview, setIsGeneratingPreview] = React.useState(false);
 
     const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -340,7 +345,8 @@ export function MaskEditor({
                         onClick={saveMask}
                         disabled={disabled || drawnPoints.length === 0}
                         className='bg-indigo-600 text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50'>
-                        <Save className='mr-1.5 h-4 w-4' /> {t('Save Mask')}
+                        <Save className='mr-1.5 h-4 w-4' />{' '}
+                        {initialPreviewUrl && drawnPoints.length > 0 ? t('Save and replace mask') : t('Save Mask')}
                     </Button>
                 </div>
             </div>
@@ -357,8 +363,15 @@ export function MaskEditor({
             {isGeneratingPreview && !maskPreviewUrl && (
                 <p className='pt-1 text-center text-xs text-amber-600'>{t('Generating mask preview...')}</p>
             )}
-            {isMaskSaved && maskPreviewUrl && (
-                <p className='pt-1 text-center text-xs text-emerald-600'>{t('Mask saved successfully!')}</p>
+            {isMaskSaved && maskPreviewUrl && drawnPoints.length === 0 && (
+                <p className='pt-1 text-center text-xs text-slate-500'>
+                    {t('This is the mask currently applied to the node. Painting replaces it entirely — use Clear to drop it.')}
+                </p>
+            )}
+            {isMaskSaved && maskPreviewUrl && drawnPoints.length > 0 && (
+                <p className='pt-1 text-center text-xs text-amber-600'>
+                    {t('Saving now replaces the whole mask with the strokes you just painted.')}
+                </p>
             )}
         </div>
     );

@@ -22,6 +22,29 @@ export const LEGACY_CANVAS_KEY = 'gptImageCanvas';
 
 const nodesKey = (id: string) => `gptImageCanvas:${id}`;
 
+export type CanvasViewport = { x: number; y: number; zoom: number };
+
+const viewportKey = (canvasId: string) => `gptImageCanvasViewport:${canvasId}`;
+
+/**
+ * Remembers where the user was looking.
+ *
+ * Without this every mount (first load, canvas switch, any remount) re-framed the board with fitView,
+ * which on a wide graph means zooming out to the floor and rendering the nodes unreadable.
+ */
+export function loadCanvasViewport(canvasId: string): CanvasViewport | null {
+    const stored = readJson<CanvasViewport>(viewportKey(canvasId));
+    if (!stored || typeof stored.x !== 'number' || typeof stored.y !== 'number' || typeof stored.zoom !== 'number') {
+        return null;
+    }
+    if (!Number.isFinite(stored.x) || !Number.isFinite(stored.y) || !Number.isFinite(stored.zoom)) return null;
+    return { x: stored.x, y: stored.y, zoom: Math.min(Math.max(stored.zoom, 0.05), 4) };
+}
+
+export function saveCanvasViewport(canvasId: string, viewport: CanvasViewport): void {
+    writeJson(viewportKey(canvasId), viewport);
+}
+
 export function newCanvasId(): string {
     return `canvas-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }

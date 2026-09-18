@@ -43,6 +43,8 @@ import {
     ImagePlus,
     LayoutDashboard,
     LayoutGrid,
+    MoreHorizontal,
+    Scaling,
     Plus,
     Sparkles,
     Trash2,
@@ -53,7 +55,13 @@ import Image from 'next/image';
 import * as React from 'react';
 
 import { CANVAS_HINT_KEY as HINT_KEY } from '@/lib/canvas-refs';
-import { loadCanvasNodes, saveCanvasNodes, type StoredCanvasNode } from '@/lib/canvas-store';
+import {
+    loadCanvasNodes,
+    loadCanvasViewport,
+    saveCanvasNodes,
+    saveCanvasViewport,
+    type StoredCanvasNode
+} from '@/lib/canvas-store';
 
 /** Shared look for every lineage edge: smooth left-to-right curve with an arrow head. */
 const EDGE_STYLE = { stroke: '#a5b4fc', strokeWidth: 2 } as const;
@@ -129,6 +137,8 @@ type CanvasBoardProps = {
 /** How many nodes may talk to the provider at once; the rest wait in the node's own queue. */
 const MAX_CONCURRENT_RUNS = 2;
 const MAX_UNDO_STEPS = 25;
+/** Never open a board smaller than this — below it the node text stops being readable. */
+const MIN_INITIAL_ZOOM = 0.6;
 
 function loadSnapshot(canvasId: string): CanvasSnapshot {
     if (typeof window === 'undefined') return { nodes: [] };
@@ -175,7 +185,7 @@ function CanvasFlow({
     }, [nodes, selectedEdgeIds]);
     const [maskTarget, setMaskTarget] = React.useState<{ nodeId: string; filename: string; path: string } | null>(null);
     const [expanded, setExpanded] = React.useState<{ path: string; filename: string } | null>(null);
-    const { screenToFlowPosition, fitView } = useReactFlow();
+    const { screenToFlowPosition, fitView, zoomTo } = useReactFlow();
 
     const nodesRef = React.useRef(nodes);
     const edgesRef = React.useRef(edges);
@@ -221,6 +231,7 @@ function CanvasFlow({
     const pendingRef = React.useRef<string[]>([]);
     const runNodeRef = React.useRef<((id: string) => Promise<void>) | null>(null);
     const [showHint, setShowHint] = React.useState(false);
+    const [isMenuOpen, setIsMenuOpen] = React.useState(false);
 
     React.useEffect(() => {
         queueMicrotask(() => setShowHint(window.localStorage.getItem(HINT_KEY) !== '1'));
@@ -280,6 +291,7 @@ function CanvasFlow({
         });
     }, [maskRecords, setNodes]);
     const skipFirstSave = React.useRef(true);
+    const viewportReady = React.useRef(false);
     const hadNodes = React.useRef(initial.nodes.length > 0);
     const explicitClear = React.useRef(false);
 
@@ -300,6 +312,9 @@ function CanvasFlow({
         const timer = window.setTimeout(() => {
             saveCanvasNodes(canvasId, nodes as StoredCanvasNode[]);
             onSaved?.();
+            // The guard only has to cover the window between an empty render and the next real save;
+            // leaving it set would disable the protection for the rest of the session.
+            explicitClear.current = false;
         }, 400);
         return () => window.clearTimeout(timer);
     }, [canvasId, nodes, onSaved]);
@@ -582,6 +597,14 @@ function CanvasFlow({
                 return;
             }
 
+            if (node.data.kind === 'edit' && node.data.sourceFilenames.length === 0) {
+                patchNode(id, {
+                    status: 'error',
+                    error: t('Connect or pick a source image before running an edit node.')
+                });
+                return;
+            }
+
             if (node.data.sourceMissing) {
                 patchNode(id, {
                     status: 'error',
@@ -711,7 +734,7 @@ function CanvasFlow({
             // Only re-frame the viewport when the node was created from the toolbar; a double-click
             // placement should stay exactly where the user pointed.
             if (!position) {
-                window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.25 }), 80);
+                window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.5 }), 80);
             }
             return id;
         },
@@ -738,7 +761,7 @@ function CanvasFlow({
                 } as TaskNodeType
             ]);
             // The connecting line is derived from the new node's sourceFilenames.
-            window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 }), 80);
+            window.setTimeout(() => fitView({ padding: 0.2, duration: 300, minZoom: 0.5 }), 80);
         },
         [findFreePosition, fitView, makeTaskData, setNodes]
     );
@@ -1193,101 +1216,104 @@ function CanvasFlow({
                     event.target.value = '';
                 }}
             />
-            <div className='pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2'>
+            {/* Floating toolbar: centred over the board so it costs no vertical space, wrapping
+                instead of clipping on narrow windows, grouped by intent. */}
+            <div className='pointer-events-none absolute top-3 left-1/2 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-xl border border-slate-200/70 bg-white/90 px-2 py-1.5 shadow-[0_1px_2px_rgba(15,23,42,0.06),0_8px_24px_-16px_rgba(15,23,42,0.35)] backdrop-blur-sm'>
                 <Button
                     type='button'
                     size='sm'
                     onClick={() => addNode('generate')}
-                    className='pointer-events-auto bg-indigo-600 text-white shadow-sm hover:bg-indigo-500'>
+                    className='pointer-events-auto h-8 bg-indigo-600 text-white shadow-sm hover:bg-indigo-500'>
                     <Plus className='mr-1.5 h-4 w-4' /> {t('New generate node')}
                 </Button>
                 <Button
                     type='button'
-                    variant='outline'
                     size='sm'
                     onClick={() => openUploadPicker()}
-                    className='pointer-events-auto border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
+                    className='pointer-events-auto h-8 bg-indigo-600 text-white shadow-sm hover:bg-indigo-500'>
                     <ImagePlus className='mr-1.5 h-4 w-4' /> {t('Upload image')}
                 </Button>
-                <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
+
+                <span className='mx-0.5 h-5 w-px bg-slate-200' aria-hidden='true' />
+
+                <ToolbarIconButton
+                    icon={ImagePlus}
+                    label={t('New edit node')}
                     onClick={() => addNode('edit')}
-                    className='pointer-events-auto border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
-                    <ImagePlus className='mr-1.5 h-4 w-4' /> {t('New edit node')}
-                </Button>
-                <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    onClick={() => fitView({ padding: 0.2, duration: 300, minZoom: 0.25 })}
-                    className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
-                    <LayoutGrid className='mr-1.5 h-4 w-4' /> {t('Fit view')}
-                </Button>
-                <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
+                />
+                <ToolbarIconButton
+                    icon={LayoutGrid}
+                    label={t('Fit view')}
+                    onClick={() => fitView({ padding: 0.2, duration: 300, minZoom: 0.35 })}
+                />
+                <ToolbarIconButton icon={Scaling} label={t('Zoom to 100%')} onClick={() => void zoomTo(1, { duration: 200 })} />
+                <ToolbarIconButton
+                    icon={LayoutDashboard}
+                    label={t('Auto arrange')}
                     disabled={nodes.length === 0}
                     onClick={autoArrange}
-                    title={t('Lay every node out by lineage with no overlap')}
-                    className='pointer-events-auto border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
-                    <LayoutDashboard className='mr-1.5 h-4 w-4' /> {t('Auto arrange')}
-                </Button>
-                <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
+                />
+                <ToolbarIconButton
+                    icon={nodes.some((node) => !node.data.collapsed) ? ChevronsDownUp : ChevronsUpDown}
+                    label={nodes.some((node) => !node.data.collapsed) ? t('Collapse all') : t('Expand all')}
                     disabled={nodes.length === 0}
                     onClick={toggleCollapseAll}
-                    title={t('Collapse or expand every node')}
-                    className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
-                    {nodes.some((node) => !node.data.collapsed) ? (
-                        <ChevronsDownUp className='mr-1.5 h-4 w-4' />
-                    ) : (
-                        <ChevronsUpDown className='mr-1.5 h-4 w-4' />
+                />
+
+                <span className='mx-0.5 h-5 w-px bg-slate-200' aria-hidden='true' />
+
+                <ToolbarIconButton icon={Undo2} label={t('Undo (Ctrl+Z)')} onClick={undo} />
+
+                <div className='pointer-events-auto relative'>
+                    <ToolbarIconButton
+                        icon={MoreHorizontal}
+                        label={t('More')}
+                        expanded={isMenuOpen}
+                        onClick={() => setIsMenuOpen((prev) => !prev)}
+                    />
+                    {isMenuOpen && (
+                        <>
+                            <div className='fixed inset-0 z-10' onClick={() => setIsMenuOpen(false)} />
+                            <div className='absolute right-0 z-20 mt-1.5 w-48 rounded-lg border border-slate-200 bg-white p-1 shadow-lg'>
+                                <button
+                                    type='button'
+                                    title={t('Download the canvas as a JSON file')}
+                                    disabled={nodes.length === 0}
+                                    onClick={() => {
+                                        setIsMenuOpen(false);
+                                        exportCanvas();
+                                    }}
+                                    className='flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
+                                    <Download className='h-3.5 w-3.5' />
+                                    {t('Export')}
+                                </button>
+                                <button
+                                    type='button'
+                                    title={t('Restore a canvas from a JSON file')}
+                                    onClick={() => {
+                                        setIsMenuOpen(false);
+                                        canvasImportRef.current?.click();
+                                    }}
+                                    className='flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
+                                    <Upload className='h-3.5 w-3.5' />
+                                    {t('Import')}
+                                </button>
+                                <div className='my-1 h-px bg-slate-100' />
+                                <button
+                                    type='button'
+                                    disabled={nodes.length === 0}
+                                    onClick={() => {
+                                        setIsMenuOpen(false);
+                                        clearCanvas();
+                                    }}
+                                    className='flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-red-600 hover:bg-red-50 disabled:opacity-40'>
+                                    <Trash2 className='h-3.5 w-3.5' />
+                                    {t('Clear canvas')}
+                                </button>
+                            </div>
+                        </>
                     )}
-                    {nodes.some((node) => !node.data.collapsed) ? t('Collapse all') : t('Expand all')}
-                </Button>
-                <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    disabled={nodes.length === 0}
-                    onClick={exportCanvas}
-                    title={t('Download the canvas as a JSON file')}
-                    className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
-                    <Download className='mr-1.5 h-4 w-4' /> {t('Export')}
-                </Button>
-                <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    onClick={() => canvasImportRef.current?.click()}
-                    title={t('Restore a canvas from a JSON file')}
-                    className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
-                    <Upload className='mr-1.5 h-4 w-4' /> {t('Import')}
-                </Button>
-                <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    onClick={undo}
-                    title={t('Undo (Ctrl+Z)')}
-                    className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
-                    <Undo2 className='mr-1.5 h-4 w-4' /> {t('Undo')}
-                </Button>
-                {nodes.length > 0 && (
-                    <Button
-                        type='button'
-                        variant='outline'
-                        size='sm'
-                        onClick={clearCanvas}
-                        className='pointer-events-auto border-red-200 bg-white text-red-600 shadow-sm hover:bg-red-50'>
-                        <Trash2 className='mr-1.5 h-4 w-4' /> {t('Clear canvas')}
-                    </Button>
-                )}
+                </div>
             </div>
 
             <TaskNodeActionsProvider actions={actions}>
@@ -1303,8 +1329,30 @@ function CanvasFlow({
                     connectionRadius={48}
                     connectionLineStyle={{ stroke: '#818cf8', strokeWidth: 2 }}
                     nodeTypes={nodeTypes}
-                    fitView
-                    fitViewOptions={{ padding: 0.2, minZoom: 0.25 }}
+                    onInit={(instance) => {
+                        // Prefer exactly where the user left off; only frame the graph the first time.
+                        const saved = loadCanvasViewport(canvasId);
+                        if (saved) {
+                            void instance.setViewport(saved, { duration: 0 });
+                        } else {
+                            // fitView's own minZoom option does not clamp the result, so the floor is
+                            // applied by hand: a graph that does not fit should be scrolled, not shrunk
+                            // into an unreadable thumbnail.
+                            void instance.fitView({ padding: 0.2 }).then(() => {
+                                const fitted = instance.getViewport();
+                                if (fitted.zoom < MIN_INITIAL_ZOOM) {
+                                    void instance.setViewport({ ...fitted, zoom: MIN_INITIAL_ZOOM }, { duration: 0 });
+                                }
+                            });
+                        }
+                        viewportReady.current = true;
+                    }}
+                    onMoveEnd={(_event, viewport) => {
+                        // React Flow emits move events while mounting; ignoring those keeps the first
+                        // frame from overwriting the stored viewport with the default one.
+                        if (!viewportReady.current) return;
+                        saveCanvasViewport(canvasId, viewport);
+                    }}
                     zoomOnDoubleClick={false}
                     minZoom={0.15}
                     maxZoom={1.6}
@@ -1412,12 +1460,34 @@ function MaskTargetEditor({
 }) {
     const { t } = useI18n();
     const [size, setSize] = React.useState<{ width: number; height: number } | null>(null);
+    const [existingMaskUrl, setExistingMaskUrl] = React.useState<string | null>(null);
 
     React.useEffect(() => {
         const img = new window.Image();
         img.onload = () => setSize({ width: img.width, height: img.height });
         img.src = target.path;
     }, [target.path]);
+
+    // Painters open empty by default, so the stored mask is loaded explicitly and shown — otherwise
+    // the first stroke would replace a mask the user cannot even see.
+    React.useEffect(() => {
+        let url: string | null = null;
+        let cancelled = false;
+
+        void db.masks
+            .get(target.nodeId)
+            .then((record) => {
+                if (cancelled || !record?.blob) return;
+                url = URL.createObjectURL(record.blob);
+                setExistingMaskUrl(url);
+            })
+            .catch((error) => console.error('Could not read the stored mask:', error));
+
+        return () => {
+            cancelled = true;
+            if (url) URL.revokeObjectURL(url);
+        };
+    }, [target.nodeId]);
 
     if (!size) {
         return <p className='py-8 text-center text-xs text-slate-400'>{t('Loading…')}</p>;
@@ -1426,7 +1496,9 @@ function MaskTargetEditor({
     return (
         <div className='space-y-2'>
             {hasMask && (
-                <p className='text-[11px] text-amber-600'>{t('A mask is already attached to this node.')}</p>
+                <p className='text-[11px] text-amber-600'>
+                    {t('A mask is already attached to this node — it is shown below; painting replaces it.')}
+                </p>
             )}
             {multiSource && (
                 <p className='text-[11px] text-slate-500'>
@@ -1437,9 +1509,40 @@ function MaskTargetEditor({
                 imageUrl={target.path}
                 imageWidth={size.width}
                 imageHeight={size.height}
+                initialPreviewUrl={existingMaskUrl}
                 onMaskChange={onMaskChange}
             />
         </div>
+    );
+}
+
+/** Icon-only toolbar button: keeps the bar compact while staying a comfortable tap target. */
+function ToolbarIconButton({
+    icon: Icon,
+    label,
+    onClick,
+    disabled = false,
+    expanded
+}: {
+    icon: React.ElementType;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    expanded?: boolean;
+}) {
+    return (
+        <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            title={label}
+            aria-label={label}
+            aria-expanded={expanded}
+            disabled={disabled}
+            onClick={onClick}
+            className='pointer-events-auto h-8 w-8 border-slate-200 bg-white p-0 text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
+            <Icon className='h-4 w-4' />
+        </Button>
     );
 }
 

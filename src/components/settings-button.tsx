@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { useI18n } from '@/lib/i18n';
 import { GPT_IMAGE_MODELS, type GptImageModel, type ImageQuality } from '@/lib/models';
 import type { SizePreset } from '@/lib/size-utils';
-import { FolderOpen, Settings as SettingsIcon } from 'lucide-react';
+import { FolderOpen, Power, Settings as SettingsIcon } from 'lucide-react';
 import * as React from 'react';
 
 export type ClientDefaults = {
@@ -78,9 +78,7 @@ export function SettingsButton({
         } catch (loadError) {
             setError(loadError instanceof Error ? loadError.message : String(loadError));
         }
-    }, []);
-
-
+    }, [passwordHash]);
 
     const saveDirectory = React.useCallback(async () => {
         if (!draftDir.trim() || draftDir.trim() === server?.outputDir) return;
@@ -141,6 +139,22 @@ export function SettingsButton({
     }, [load, onNotify, passwordHash, retentionDraft, server?.trashRetentionDays, t]);
 
     const megabytes = server ? (server.totalBytes / 1024 / 1024).toFixed(1) : '0';
+    const [isShuttingDown, setIsShuttingDown] = React.useState(false);
+
+    const shutdownServer = React.useCallback(async () => {
+        if (!window.confirm(t('Stop the local server? The page stays open but stops working.'))) return;
+        setIsShuttingDown(true);
+        try {
+            await fetch('/api/shutdown', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(passwordHash ? { passwordHash } : {})
+            });
+        } catch {
+            // The server usually dies before the response is read — that is the expected outcome.
+        }
+        onNotify(t('Server stopped. You can close this page now.'), 'info');
+    }, [onNotify, passwordHash, t]);
     const [passwordDraft, setPasswordDraft] = React.useState('');
     const [savingPassword, setSavingPassword] = React.useState(false);
 
@@ -363,6 +377,23 @@ export function SettingsButton({
                             </div>
                         </section>
                     )}
+
+                    <section className='space-y-2 border-t border-slate-100 pt-4'>
+                        <h3 className='text-[13px] font-semibold text-slate-800'>{t('Server')}</h3>
+                        <p className='text-[11px] text-slate-400'>
+                            {t('Stopping the server leaves the canvas and pictures untouched; start it again with the desktop shortcut.')}
+                        </p>
+                        <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            disabled={isShuttingDown}
+                            onClick={() => void shutdownServer()}
+                            className='border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50'>
+                            <Power className='mr-1.5 h-3.5 w-3.5' />
+                            {isShuttingDown ? t('Stopping…') : t('Shut Down Service')}
+                        </Button>
+                    </section>
 
                     {error && (
                         <p className='rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700'>
