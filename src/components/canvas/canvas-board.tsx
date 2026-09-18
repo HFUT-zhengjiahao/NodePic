@@ -34,7 +34,7 @@ import {
     type Node
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Brush, ImagePlus, LayoutGrid, Plus, Sparkles, Trash2, Undo2 } from 'lucide-react';
+import { Brush, Download, ImagePlus, LayoutGrid, Plus, Sparkles, Trash2, Undo2, Upload } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
 
@@ -248,12 +248,23 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
         });
     }, [maskRecords, setNodes]);
     const skipFirstSave = React.useRef(true);
+    const hadNodes = React.useRef(initial.nodes.length > 0);
+    const explicitClear = React.useRef(false);
 
     React.useEffect(() => {
         if (skipFirstSave.current) {
             skipFirstSave.current = false;
             return;
         }
+        if (nodes.length > 0) {
+            hadNodes.current = true;
+        } else if (hadNodes.current && !explicitClear.current) {
+            // An empty node list without a user action means a bad load or a render glitch — writing it
+            // would silently destroy the canvas, so keep the stored snapshot instead.
+            console.warn('Refusing to overwrite a non-empty canvas with an empty one.');
+            return;
+        }
+
         const timer = window.setTimeout(() => {
             try {
                 window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes }));
@@ -734,6 +745,7 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
     const deleteNode = React.useCallback(
         (id: string) => {
             if (!window.confirm(t('Delete this node? You can undo this with Ctrl+Z.'))) return;
+            explicitClear.current = true;
             snapshot();
             void db.masks.delete(id).catch((error) => console.error('Failed to drop the node mask:', error));
             setNodes((prev) => prev.filter((node) => node.id !== id));
@@ -830,10 +842,70 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
 
     const clearCanvas = React.useCallback(() => {
         if (!window.confirm(t('Clear the whole canvas? You can undo this with Ctrl+Z.'))) return;
+        explicitClear.current = true;
         snapshot();
         void db.masks.clear().catch((error) => console.error('Failed to clear masks:', error));
         setNodes([]);
     }, [setNodes, snapshot, t]);
+
+    /** Writes the canvas to a JSON file so a bad day is recoverable. */
+    const exportCanvas = React.useCallback(() => {
+        const payload = {
+            kind: 'gpt-image-playground-canvas',
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            nodes: nodesRef.current.map((node) => ({
+                id: node.id,
+                position: node.position,
+                data: node.data
+            }))
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `canvas-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+        onNotify?.(t('Canvas exported.'), 'success');
+    }, [onNotify, t]);
+
+    const canvasImportRef = React.useRef<HTMLInputElement>(null);
+
+    const importCanvas = React.useCallback(
+        async (file: File | undefined) => {
+            if (!file) return;
+            try {
+                const parsed = JSON.parse(await file.text()) as { nodes?: TaskNodeType[] };
+                const imported = Array.isArray(parsed.nodes) ? parsed.nodes : [];
+                if (imported.length === 0) {
+                    onNotify?.(t('That file contains no canvas nodes.'), 'error');
+                    return;
+                }
+                if (!window.confirm(t('Replace the current canvas with {count} node(s) from this file?', { count: imported.length }))) {
+                    return;
+                }
+                snapshot();
+                explicitClear.current = true;
+                setNodes(
+                    imported.map((node) => ({
+                        ...node,
+                        type: 'task',
+                        selected: false,
+                        data: {
+                            ...node.data,
+                            status: node.data.status === 'running' || node.data.status === 'queued' ? 'idle' : node.data.status
+                        }
+                    })) as TaskNodeType[]
+                );
+                onNotify?.(t('Imported {count} node(s).', { count: imported.length }), 'success');
+            } catch (error) {
+                console.error('Canvas import failed:', error);
+                onNotify?.(t('That file is not a valid canvas export.'), 'error');
+            }
+        },
+        [onNotify, setNodes, snapshot, t]
+    );
 
     const actions = React.useMemo<TaskNodeActions>(
         () => ({
@@ -872,6 +944,17 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                 if (event.dataTransfer?.types?.includes('Files')) event.preventDefault();
             }}
             onDrop={handleDrop}>
+            <input
+                ref={canvasImportRef}
+                id='canvas-import'
+                type='file'
+                accept='application/json,.json'
+                className='hidden'
+                onChange={(event) => {
+                    void importCanvas(event.target.files?.[0]);
+                    event.target.value = '';
+                }}
+            />
             <input
                 ref={fileInputRef}
                 id='canvas-image-upload'
@@ -915,6 +998,25 @@ function CanvasFlow({ onTaskComplete, onNotify, passwordHash }: CanvasBoardProps
                     onClick={() => fitView({ padding: 0.2, duration: 300, minZoom: 0.85 })}
                     className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
                     <LayoutGrid className='mr-1.5 h-4 w-4' /> {t('Fit view')}
+                </Button>
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    disabled={nodes.length === 0}
+                    onClick={exportCanvas}
+                    title={t('Download the canvas as a JSON file')}
+                    className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'>
+                    <Download className='mr-1.5 h-4 w-4' /> {t('Export')}
+                </Button>
+                <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => canvasImportRef.current?.click()}
+                    title={t('Restore a canvas from a JSON file')}
+                    className='pointer-events-auto border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'>
+                    <Upload className='mr-1.5 h-4 w-4' /> {t('Import')}
                 </Button>
                 <Button
                     type='button'

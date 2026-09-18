@@ -1,7 +1,13 @@
 /** Models that can be selected for new generations and edits, in display order. */
 export const GPT_IMAGE_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2'] as const;
 export type GptImageModel = (typeof GPT_IMAGE_MODELS)[number];
-export const DEFAULT_GPT_IMAGE_MODEL: GptImageModel = 'gpt-image-2.5-flare';
+/**
+ * Model a brand new form / canvas node starts with.
+ *
+ * `gpt-image-2.5-sunburst` is the highest-fidelity tier, so new work defaults to it — switch the
+ * picker to `gpt-image-2.5-flare` when you want the faster/cheaper variant.
+ */
+export const DEFAULT_GPT_IMAGE_MODEL: GptImageModel = 'gpt-image-2.5-sunburst';
 
 /** Selectable models plus retired ones that may still appear in stored history. */
 export type HistoryGptImageModel = GptImageModel | 'gpt-image-1' | 'gpt-image-1-mini' | 'gpt-image-1.5';

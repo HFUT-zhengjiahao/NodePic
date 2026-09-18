@@ -177,7 +177,7 @@ export default function HomePage() {
     const [editSize, setEditSize] = React.useState<EditingFormData['size']>('auto');
     const [editCustomWidth, setEditCustomWidth] = React.useState<number>(1024);
     const [editCustomHeight, setEditCustomHeight] = React.useState<number>(1024);
-    const [editQuality, setEditQuality] = React.useState<EditingFormData['quality']>('auto');
+    const [editQuality, setEditQuality] = React.useState<EditingFormData['quality']>('high');
     const [editOutputFormat, setEditOutputFormat] = React.useState<EditingFormData['output_format']>('png');
     const [editCompression, setEditCompression] = React.useState([100]);
     const [editBackground, setEditBackground] = React.useState<EditingFormData['background']>('auto');
@@ -198,7 +198,7 @@ export default function HomePage() {
     const [genSize, setGenSize] = React.useState<GenerationFormData['size']>('auto');
     const [genCustomWidth, setGenCustomWidth] = React.useState<number>(1024);
     const [genCustomHeight, setGenCustomHeight] = React.useState<number>(1024);
-    const [genQuality, setGenQuality] = React.useState<GenerationFormData['quality']>('auto');
+    const [genQuality, setGenQuality] = React.useState<GenerationFormData['quality']>('high');
     const [genOutputFormat, setGenOutputFormat] = React.useState<GenerationFormData['output_format']>('png');
     const [genCompression, setGenCompression] = React.useState([100]);
     const [genBackground, setGenBackground] = React.useState<GenerationFormData['background']>('auto');

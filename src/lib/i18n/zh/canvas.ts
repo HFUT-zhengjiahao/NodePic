@@ -78,5 +78,14 @@ export const canvas: Record<string, string> = {
     'Picture replaced.': '图片已替换。',
     'Added {count} picture node(s).': '已添加 {count} 个图片节点。',
     'Upload failed with status {status}': '上传失败（HTTP {status}）',
+    'Export': '导出',
+    'Import': '导入',
+    'Download the canvas as a JSON file': '把画布导出为 JSON 文件备份',
+    'Restore a canvas from a JSON file': '从 JSON 文件恢复画布',
+    'Canvas exported.': '画布已导出。',
+    'Imported {count} node(s).': '已导入 {count} 个节点。',
+    'Replace the current canvas with {count} node(s) from this file?': '用文件里的 {count} 个节点替换当前画布？',
+    'That file contains no canvas nodes.': '这个文件里没有画布节点。',
+    'That file is not a valid canvas export.': '这不是有效的画布导出文件。',
     'An unexpected error occurred.': '出错了，请重试。'
 };

@@ -1,5 +1,12 @@
 import type { ApiUsage, CostDetails } from '@/lib/cost-utils';
-import type { GptImageModel, ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality } from '@/lib/models';
+import {
+    DEFAULT_GPT_IMAGE_MODEL,
+    type GptImageModel,
+    type ImageBackground,
+    type ImageModeration,
+    type ImageOutputFormat,
+    type ImageQuality
+} from '@/lib/models';
 import type { SizePreset } from '@/lib/size-utils';
 
 /** A finished image belonging to a node, as served by /api/image/<filename>. */
@@ -60,13 +67,13 @@ export type CanvasTaskData = {
 export const MAX_EDIT_SOURCES = 1;
 
 export const DEFAULT_TASK_PARAMS: CanvasTaskParams = {
-    model: 'gpt-image-2.5-flare',
+    model: DEFAULT_GPT_IMAGE_MODEL,
     n: 1,
     // Matches the list view's default: let the model pick, instead of forcing a 2048x2048 render.
     size: 'auto',
     customWidth: 1024,
     customHeight: 1024,
-    quality: 'medium',
+    quality: 'high',
     background: 'auto',
     outputFormat: 'png',
     compression: 80,
