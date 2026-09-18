@@ -19,6 +19,7 @@ import {
     type ImageOutputFormat,
     type ImageQuality
 } from '@/lib/models';
+import { useI18n } from '@/lib/i18n';
 import { validateCustomSize, type SizePreset } from '@/lib/size-utils';
 import { HelpCircle, Loader2, Lock, LockOpen } from 'lucide-react';
 import * as React from 'react';
@@ -108,9 +109,10 @@ export function GenerationForm({
     partialImages,
     setPartialImages
 }: GenerationFormProps) {
+    const { t } = useI18n();
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
     const customSizeValidation =
-        size === 'custom' ? validateCustomSize(customWidth, customHeight) : { valid: true as const };
+        size === 'custom' ? validateCustomSize(customWidth, customHeight, t) : { valid: true as const };
     const customSizeInvalid = !customSizeValidation.valid;
 
     // Disable streaming when n > 1 (OpenAI limitation)
@@ -144,24 +146,27 @@ export function GenerationForm({
     };
 
     return (
-        <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
-            <CardHeader className='flex items-start justify-between border-b border-white/10 pb-4'>
+        <Card className='flex h-full w-full flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'>
+            <CardHeader className='flex items-start justify-between border-b border-slate-100 bg-white px-5 py-4'>
                 <div>
-                    <div className='flex items-center'>
-                        <CardTitle className='py-1 text-lg font-medium text-white'>Generate Image</CardTitle>
+                    <div className='flex items-center gap-2.5'>
+                        <span className='h-2 w-2 shrink-0 rounded-full bg-indigo-500' aria-hidden='true' />
+                        <CardTitle className='text-[17px] font-semibold tracking-tight text-slate-900'>
+                            {t('Generate Image')}
+                        </CardTitle>
                         {isPasswordRequiredByBackend && (
                             <Button
                                 variant='ghost'
                                 size='icon'
                                 onClick={onOpenPasswordDialog}
-                                className='ml-2 text-white/60 hover:text-white'
-                                aria-label='Configure Password'>
+                                className='ml-2 text-slate-500 hover:text-slate-900'
+                                aria-label={t('Configure Password')}>
                                 {clientPasswordHash ? <Lock className='h-4 w-4' /> : <LockOpen className='h-4 w-4' />}
                             </Button>
                         )}
                     </div>
-                    <CardDescription className='mt-1 text-white/60'>
-                        Create a new image from a text prompt.
+                    <CardDescription className='mt-1 pl-[18px] text-[13px] text-slate-500'>
+                        {t('Create a new image from a text prompt.')}
                     </CardDescription>
                 </div>
                 <ModeToggle currentMode={currentMode} onModeChange={onModeChange} />
@@ -169,8 +174,8 @@ export function GenerationForm({
             <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
                 <CardContent className='flex-1 space-y-5 overflow-y-auto p-4'>
                     <div className='space-y-1.5'>
-                        <Label htmlFor='model-select' className='text-white'>
-                            Model
+                        <Label htmlFor='model-select' className='text-slate-900'>
+                            {t('Model')}
                         </Label>
                         <div className='flex items-center gap-4'>
                             <Select
@@ -179,12 +184,12 @@ export function GenerationForm({
                                 disabled={isLoading}>
                                 <SelectTrigger
                                     id='model-select'
-                                    className='w-[220px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                    <SelectValue placeholder='Select model' />
+                                    className='w-[220px] rounded-md border border-slate-200 bg-white text-slate-900 focus:border-indigo-400 focus:ring-indigo-100'>
+                                    <SelectValue placeholder={t('Select model')} />
                                 </SelectTrigger>
-                                <SelectContent className='border-white/20 bg-black text-white'>
+                                <SelectContent className='border-slate-200 bg-white text-slate-900'>
                                     {GPT_IMAGE_MODELS.map((id) => (
-                                        <SelectItem key={id} value={id} className='focus:bg-white/10'>
+                                        <SelectItem key={id} value={id} className='focus:bg-slate-100'>
                                             {id}
                                         </SelectItem>
                                     ))}
@@ -198,19 +203,21 @@ export function GenerationForm({
                                             checked={enableStreaming}
                                             onCheckedChange={(checked) => setEnableStreaming(!!checked)}
                                             disabled={isLoading || n[0] > 1}
-                                            className='border-white/40 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                            className='border-slate-300 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-indigo-600 data-[state=checked]:bg-indigo-600 data-[state=checked]:text-white'
                                         />
                                         <Label
                                             htmlFor='enable-streaming'
-                                            className={`text-sm ${n[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'}`}>
-                                            Enable Streaming
+                                            className={`text-sm ${n[0] > 1 ? 'cursor-not-allowed text-slate-400' : 'cursor-pointer text-slate-700'}`}>
+                                            {t('Enable Streaming')}
                                         </Label>
                                     </div>
                                 </TooltipTrigger>
                                 <TooltipContent className='max-w-[250px]'>
                                     {n[0] > 1
-                                        ? 'Streaming is only supported when generating a single image (n=1).'
-                                        : 'Shows partial preview images as they are generated, providing a more interactive experience.'}
+                                        ? t('Streaming is only supported when generating a single image (n=1).')
+                                        : t(
+                                              'Shows partial preview images as they are generated, providing a more interactive experience.'
+                                          )}
                                 </TooltipContent>
                             </Tooltip>
                         </div>
@@ -219,13 +226,13 @@ export function GenerationForm({
                     {enableStreaming && (
                         <div className='space-y-3'>
                             <div className='flex items-center gap-2'>
-                                <Label className='text-white'>Preview Images</Label>
+                                <Label className='text-slate-900'>{t('Preview Images')}</Label>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <HelpCircle className='h-4 w-4 cursor-help text-white/40 hover:text-white/60' />
+                                        <HelpCircle className='h-4 w-4 cursor-help text-slate-400 hover:text-slate-500' />
                                     </TooltipTrigger>
                                     <TooltipContent className='max-w-[250px]'>
-                                        Each preview image adds ~$0.003 to the cost (100 additional output tokens).
+                                        {t('Each preview image adds ~$0.003 to the cost (100 additional output tokens).')}
                                     </TooltipContent>
                                 </Tooltip>
                             </div>
@@ -238,9 +245,9 @@ export function GenerationForm({
                                     <RadioGroupItem
                                         value='1'
                                         id='partial-1'
-                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                                        className='border-slate-300 text-slate-500 data-[state=checked]:border-indigo-600 data-[state=checked]:text-indigo-600'
                                     />
-                                    <Label htmlFor='partial-1' className='cursor-pointer text-white/80'>
+                                    <Label htmlFor='partial-1' className='cursor-pointer text-slate-700'>
                                         1
                                     </Label>
                                 </div>
@@ -248,9 +255,9 @@ export function GenerationForm({
                                     <RadioGroupItem
                                         value='2'
                                         id='partial-2'
-                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                                        className='border-slate-300 text-slate-500 data-[state=checked]:border-indigo-600 data-[state=checked]:text-indigo-600'
                                     />
-                                    <Label htmlFor='partial-2' className='cursor-pointer text-white/80'>
+                                    <Label htmlFor='partial-2' className='cursor-pointer text-slate-700'>
                                         2
                                     </Label>
                                 </div>
@@ -258,9 +265,9 @@ export function GenerationForm({
                                     <RadioGroupItem
                                         value='3'
                                         id='partial-3'
-                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                                        className='border-slate-300 text-slate-500 data-[state=checked]:border-indigo-600 data-[state=checked]:text-indigo-600'
                                     />
-                                    <Label htmlFor='partial-3' className='cursor-pointer text-white/80'>
+                                    <Label htmlFor='partial-3' className='cursor-pointer text-slate-700'>
                                         3
                                     </Label>
                                 </div>
@@ -269,23 +276,23 @@ export function GenerationForm({
                     )}
 
                     <div className='space-y-1.5'>
-                        <Label htmlFor='prompt' className='text-white'>
-                            Prompt
+                        <Label htmlFor='prompt' className='text-slate-900'>
+                            {t('Prompt')}
                         </Label>
                         <Textarea
                             id='prompt'
-                            placeholder='e.g., A photorealistic cat astronaut floating in space'
+                            placeholder={t('e.g., A photorealistic cat astronaut floating in space')}
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
                             required
                             disabled={isLoading}
-                            className='min-h-[80px] rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                            className='min-h-[80px] rounded-md border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-indigo-100'
                         />
                     </div>
 
                     <div className='space-y-2'>
-                        <Label htmlFor='n-slider' className='text-white'>
-                            Number of Images: {n[0]}
+                        <Label htmlFor='n-slider' className='text-slate-900'>
+                            {t('Number of Images: {count}', { count: n[0] })}
                         </Label>
                         <Slider
                             id='n-slider'
@@ -295,7 +302,7 @@ export function GenerationForm({
                             value={n}
                             onValueChange={setN}
                             disabled={isLoading}
-                            className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                            className='mt-3 [&>button]:border-slate-300 [&>button]:bg-indigo-600 [&>button]:ring-offset-white [&>span:first-child]:h-1 [&>span:first-child>span]:bg-indigo-500'
                         />
                     </div>
 
@@ -322,13 +329,13 @@ export function GenerationForm({
                         setModeration={setModeration}
                     />
                 </CardContent>
-                <CardFooter className='border-t border-white/10 p-4'>
+                <CardFooter className='border-t border-slate-200 p-4'>
                     <Button
                         type='submit'
                         disabled={isLoading || !prompt || customSizeInvalid}
-                        className='flex w-full items-center justify-center gap-2 rounded-md bg-white text-black hover:bg-white/90 disabled:bg-white/10 disabled:text-white/40'>
+                        className='flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
                         {isLoading && <Loader2 className='h-4 w-4 animate-spin' />}
-                        {isLoading ? 'Generating...' : 'Generate'}
+                        {isLoading ? t('Generating...') : t('Generate')}
                     </Button>
                 </CardFooter>
             </form>

@@ -13,8 +13,14 @@ export function isGptImageModel(value: unknown): value is GptImageModel {
 export type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /** Quality tiers that only the gpt-image-2.5 models accept; gpt-image-2 rejects them with HTTP 400. */
 export const EXTENDED_QUALITIES: readonly ImageQuality[] = ['xhigh', 'max'];
+/**
+ * Local tweak: this instance talks to PackyAPI (https://cf.api.fan), whose validation only accepts
+ * low/medium/high/auto and rejects xhigh/max with HTTP 400 for every gpt-image model.
+ * Restore the upstream `model !== 'gpt-image-2'` behaviour if you ever point this at OpenAI directly.
+ */
 export function supportsExtendedQuality(model: GptImageModel): boolean {
-    return model !== 'gpt-image-2';
+    void model;
+    return false;
 }
 
 export type ImageBackground = 'auto' | 'opaque' | 'transparent';

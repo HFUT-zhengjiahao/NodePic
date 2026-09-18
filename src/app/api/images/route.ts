@@ -413,6 +413,23 @@ export async function POST(request: NextRequest) {
 
         console.log('OpenAI API call successful.');
 
+        // OpenAI-compatible gateways (relays, self-hosted proxies) often answer with `url` instead of
+        // `b64_json` unless base64 is explicitly requested. Download those payloads so the storage
+        // pipeline below (filesystem / IndexedDB) keeps receiving base64 data either way.
+        await Promise.all(
+            (result?.data ?? []).map(async (imageData) => {
+                const payload = imageData as { b64_json?: string; url?: string };
+                if (payload.b64_json || !payload.url) {
+                    return;
+                }
+                const download = await fetch(payload.url);
+                if (!download.ok) {
+                    throw new Error(`Failed to download generated image (HTTP ${download.status}) from ${payload.url}`);
+                }
+                payload.b64_json = Buffer.from(await download.arrayBuffer()).toString('base64');
+            })
+        );
+
         if (!result || !Array.isArray(result.data) || result.data.length === 0) {
             console.error('Invalid or empty data received from OpenAI API:', result);
             return NextResponse.json({ error: 'Failed to retrieve image data from API.' }, { status: 500 });

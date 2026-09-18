@@ -1,6 +1,7 @@
 'use client';
 
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useI18n } from '@/lib/i18n';
 
 type ModeToggleProps = {
     currentMode: 'generate' | 'edit';
@@ -8,6 +9,8 @@ type ModeToggleProps = {
 };
 
 export function ModeToggle({ currentMode, onModeChange }: ModeToggleProps) {
+    const { t } = useI18n();
+
     return (
         <Tabs
             value={currentMode}
@@ -18,19 +21,19 @@ export function ModeToggle({ currentMode, onModeChange }: ModeToggleProps) {
                     value='generate'
                     className={`rounded-md border px-3 py-1 text-sm transition-colors ${
                         currentMode === 'generate'
-                            ? 'border-white bg-white text-black'
-                            : 'border-dashed border-white/30 bg-transparent text-white/60 hover:border-white/50 hover:text-white/80'
+                            ? 'border-slate-200 bg-white text-indigo-600 shadow-sm'
+                            : 'border-dashed border-slate-200 bg-transparent text-slate-500 hover:border-indigo-400 hover:text-slate-700'
                     } `}>
-                    Generate
+                    {t('Generate')}
                 </TabsTrigger>
                 <TabsTrigger
                     value='edit'
                     className={`rounded-md border px-3 py-1 text-sm transition-colors ${
                         currentMode === 'edit'
-                            ? 'border-white bg-white text-black'
-                            : 'border-dashed border-white/30 bg-transparent text-white/60 hover:border-white/50 hover:text-white/80'
+                            ? 'border-slate-200 bg-white text-indigo-600 shadow-sm'
+                            : 'border-dashed border-slate-200 bg-transparent text-slate-500 hover:border-indigo-400 hover:text-slate-700'
                     } `}>
-                    Edit
+                    {t('Edit')}
                 </TabsTrigger>
             </TabsList>
         </Tabs>

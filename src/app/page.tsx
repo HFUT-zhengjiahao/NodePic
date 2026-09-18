@@ -4,10 +4,13 @@ import { EditingForm, type EditingFormData } from '@/components/editing-form';
 import { GenerationForm, type GenerationFormData } from '@/components/generation-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
+import { LanguageToggle } from '@/components/language-toggle';
 import { PasswordDialog } from '@/components/password-dialog';
+import { ShutdownButton } from '@/components/shutdown-button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { calculateApiCost, type ApiUsage, type CostDetails } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
+import { useI18n } from '@/lib/i18n';
 import {
     DEFAULT_GPT_IMAGE_MODEL,
     MAX_EDIT_IMAGES,
@@ -75,6 +78,7 @@ type ApiImageResponseItem = {
 };
 
 export default function HomePage() {
+    const { t } = useI18n();
     const [mode, setMode] = React.useState<'generate' | 'edit'>('generate');
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
@@ -276,7 +280,7 @@ export default function HomePage() {
             }
 
             if (editImageFiles.length >= MAX_EDIT_IMAGES) {
-                alert(`Cannot paste: Maximum of ${MAX_EDIT_IMAGES} images reached.`);
+                alert(t('Cannot paste: Maximum of {count} images reached.', { count: MAX_EDIT_IMAGES }));
                 return;
             }
 
@@ -799,16 +803,22 @@ export default function HomePage() {
     }, []);
 
     return (
-        <main className='flex min-h-screen flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
+        <main className='flex min-h-screen flex-col items-center bg-slate-50 p-4 text-slate-900 md:p-8 lg:p-12'>
+            <div className='mb-4 flex w-full max-w-screen-2xl items-start justify-end gap-3'>
+                <ShutdownButton />
+                <LanguageToggle />
+            </div>
             <PasswordDialog
                 isOpen={isPasswordDialogOpen}
                 onOpenChange={setIsPasswordDialogOpen}
                 onSave={handleSavePassword}
-                title={passwordDialogContext === 'retry' ? 'Password Required' : 'Configure Password'}
+                title={passwordDialogContext === 'retry' ? t('Password Required') : t('Configure Password')}
                 description={
                     passwordDialogContext === 'retry'
-                        ? 'The server requires a password, or the previous one was incorrect. Please enter it to continue.'
-                        : 'Set a password to use for API requests.'
+                        ? t(
+                              'The server requires a password, or the previous one was incorrect. Please enter it to continue.'
+                          )
+                        : t('Set a password to use for API requests.')
                 }
             />
             <div className='w-full max-w-screen-2xl space-y-6'>
@@ -910,8 +920,8 @@ export default function HomePage() {
                     </div>
                     <div className='flex h-[70vh] min-h-[600px] flex-col lg:col-span-1'>
                         {error && (
-                            <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
-                                <AlertTitle className='text-red-200'>Error</AlertTitle>
+                            <Alert variant='destructive' className='mb-4 border-red-200 bg-red-50 text-red-600'>
+                                <AlertTitle className='text-red-700'>{t('Error')}</AlertTitle>
                                 <AlertDescription>{error}</AlertDescription>
                             </Alert>
                         )}
@@ -919,7 +929,6 @@ export default function HomePage() {
                             imageBatch={latestImageBatch}
                             viewMode={imageOutputView}
                             onViewChange={setImageOutputView}
-                            altText='Generated image output'
                             isLoading={isLoading || isSendingToEdit}
                             loadingStartTime={generationStartTime}
                             onSendToEdit={handleSendToEdit}

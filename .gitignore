@@ -42,3 +42,6 @@ next-env.d.ts
 
 # generated images
 generated-images/
+
+# local run state (pid/log of the dev server started from the shortcut)
+.run/

@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useI18n } from '@/lib/i18n';
 import {
     EXTENDED_QUALITIES,
     supportsExtendedQuality,
@@ -82,10 +83,10 @@ const RadioItemWithIcon = ({
         <RadioGroupItem
             value={value}
             id={id}
-            className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+            className='border-slate-300 text-slate-500 data-[state=checked]:border-indigo-600 data-[state=checked]:text-indigo-600'
         />
-        <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-white/80'>
-            <Icon className='h-5 w-5 text-white/60' />
+        <Label htmlFor={id} className='flex cursor-pointer items-center gap-2 text-base text-slate-700'>
+            <Icon className='h-5 w-5 text-slate-500' />
             {label}
         </Label>
     </div>
@@ -119,6 +120,7 @@ export function ImageOptions({
     moderation,
     setModeration
 }: ImageOptionsProps) {
+    const { t } = useI18n();
     const id = (suffix: string) => `${idPrefix}-${suffix}`;
     const showExtendedQuality = supportsExtendedQuality(model);
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
@@ -133,14 +135,14 @@ export function ImageOptions({
     return (
         <>
             <div className='space-y-3'>
-                <Label className='block text-white'>Size</Label>
+                <Label className='block text-slate-900'>{t('Size')}</Label>
                 <RadioGroup
                     value={size}
                     onValueChange={(value) => setSize(value as SizePreset)}
                     disabled={disabled}
                     className='flex flex-wrap gap-x-5 gap-y-3'>
-                    <RadioItemWithIcon value='auto' id={id('size-auto')} label='Auto' Icon={Sparkles} />
-                    <RadioItemWithIcon value='custom' id={id('size-custom')} label='Custom' Icon={SquareDashed} />
+                    <RadioItemWithIcon value='auto' id={id('size-auto')} label={t('Auto')} Icon={Sparkles} />
+                    <RadioItemWithIcon value='custom' id={id('size-custom')} label={t('Custom')} Icon={SquareDashed} />
                     {SIZE_PRESETS.map(({ value, label, Icon }) => (
                         <Tooltip key={value}>
                             <TooltipTrigger asChild>
@@ -148,7 +150,7 @@ export function ImageOptions({
                                     <RadioItemWithIcon
                                         value={value}
                                         id={id(`size-${value}`)}
-                                        label={label}
+                                        label={t(label)}
                                         Icon={Icon}
                                     />
                                 </div>
@@ -158,11 +160,11 @@ export function ImageOptions({
                     ))}
                 </RadioGroup>
                 {size === 'custom' && (
-                    <div className='space-y-2 rounded-md border border-white/10 bg-white/5 p-3'>
+                    <div className='space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3'>
                         <div className='flex items-center gap-3'>
                             <div className='flex-1 space-y-1'>
-                                <Label htmlFor={id('custom-width')} className='text-xs text-white/70'>
-                                    Width (px)
+                                <Label htmlFor={id('custom-width')} className='text-xs text-slate-600'>
+                                    {t('Width (px)')}
                                 </Label>
                                 <Input
                                     id={id('custom-width')}
@@ -173,13 +175,13 @@ export function ImageOptions({
                                     value={customWidth}
                                     onChange={(e) => setCustomWidth(parseInt(e.target.value, 10) || 0)}
                                     disabled={disabled}
-                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
+                                    className='rounded-md border border-slate-200 bg-white text-slate-900 focus:border-indigo-400 focus:ring-indigo-100'
                                 />
                             </div>
-                            <span className='pt-5 text-white/60'>×</span>
+                            <span className='pt-5 text-slate-500'>×</span>
                             <div className='flex-1 space-y-1'>
-                                <Label htmlFor={id('custom-height')} className='text-xs text-white/70'>
-                                    Height (px)
+                                <Label htmlFor={id('custom-height')} className='text-xs text-slate-600'>
+                                    {t('Height (px)')}
                                 </Label>
                                 <Input
                                     id={id('custom-height')}
@@ -190,82 +192,92 @@ export function ImageOptions({
                                     value={customHeight}
                                     onChange={(e) => setCustomHeight(parseInt(e.target.value, 10) || 0)}
                                     disabled={disabled}
-                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'
+                                    className='rounded-md border border-slate-200 bg-white text-slate-900 focus:border-indigo-400 focus:ring-indigo-100'
                                 />
                             </div>
                         </div>
-                        <p className='text-xs text-white/50'>
-                            {(customWidth * customHeight).toLocaleString()} pixels (
-                            {(((customWidth * customHeight) / CUSTOM_SIZE_MAX_PIXELS) * 100).toFixed(1)}% of max) ·{' '}
-                            {customWidth > 0 && customHeight > 0
-                                ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1 ratio`
-                                : '—'}
+                        <p className='text-xs text-slate-500'>
+                            {t('{pixels} pixels ({percent}% of max) · {ratio}', {
+                                pixels: (customWidth * customHeight).toLocaleString(),
+                                percent: (((customWidth * customHeight) / CUSTOM_SIZE_MAX_PIXELS) * 100).toFixed(1),
+                                ratio:
+                                    customWidth > 0 && customHeight > 0
+                                        ? `${(Math.max(customWidth, customHeight) / Math.min(customWidth, customHeight)).toFixed(2)}:1`
+                                        : '—'
+                            })}
                         </p>
-                        {!sizeValidation.valid && <p className='text-xs text-red-400'>{sizeValidation.reason}</p>}
-                        <p className='text-xs text-white/40'>
-                            Constraints: multiples of {CUSTOM_SIZE_EDGE_MULTIPLE}, max edge {CUSTOM_SIZE_MAX_EDGE}px,
-                            aspect ratio ≤ {CUSTOM_SIZE_MAX_ASPECT}:1, {CUSTOM_SIZE_MIN_PIXELS.toLocaleString()} to{' '}
-                            {CUSTOM_SIZE_MAX_PIXELS.toLocaleString()} total pixels.
+                        {!sizeValidation.valid && <p className='text-xs text-red-600'>{sizeValidation.reason}</p>}
+                        <p className='text-xs text-slate-400'>
+                            {t(
+                                'Constraints: multiples of {multiple}, max edge {edge}px, aspect ratio ≤ {aspect}:1, {min} to {max} total pixels.',
+                                {
+                                    multiple: CUSTOM_SIZE_EDGE_MULTIPLE,
+                                    edge: CUSTOM_SIZE_MAX_EDGE,
+                                    aspect: CUSTOM_SIZE_MAX_ASPECT,
+                                    min: CUSTOM_SIZE_MIN_PIXELS.toLocaleString(),
+                                    max: CUSTOM_SIZE_MAX_PIXELS.toLocaleString()
+                                }
+                            )}
                         </p>
                     </div>
                 )}
             </div>
 
             <div className='space-y-3'>
-                <Label className='block text-white'>Quality</Label>
+                <Label className='block text-slate-900'>{t('Quality')}</Label>
                 <RadioGroup
                     value={quality}
                     onValueChange={(value) => setQuality(value as ImageQuality)}
                     disabled={disabled}
                     className='flex flex-wrap gap-x-5 gap-y-3'>
-                    <RadioItemWithIcon value='auto' id={id('quality-auto')} label='Auto' Icon={Sparkles} />
-                    <RadioItemWithIcon value='low' id={id('quality-low')} label='Low' Icon={Tally1} />
-                    <RadioItemWithIcon value='medium' id={id('quality-medium')} label='Medium' Icon={Tally2} />
-                    <RadioItemWithIcon value='high' id={id('quality-high')} label='High' Icon={Tally3} />
+                    <RadioItemWithIcon value='auto' id={id('quality-auto')} label={t('Auto')} Icon={Sparkles} />
+                    <RadioItemWithIcon value='low' id={id('quality-low')} label={t('Low')} Icon={Tally1} />
+                    <RadioItemWithIcon value='medium' id={id('quality-medium')} label={t('Medium')} Icon={Tally2} />
+                    <RadioItemWithIcon value='high' id={id('quality-high')} label={t('High')} Icon={Tally3} />
                     {showExtendedQuality && (
                         <>
-                            <RadioItemWithIcon value='xhigh' id={id('quality-xhigh')} label='XHigh' Icon={Tally4} />
-                            <RadioItemWithIcon value='max' id={id('quality-max')} label='Max' Icon={Tally5} />
+                            <RadioItemWithIcon value='xhigh' id={id('quality-xhigh')} label={t('XHigh')} Icon={Tally4} />
+                            <RadioItemWithIcon value='max' id={id('quality-max')} label={t('Max')} Icon={Tally5} />
                         </>
                     )}
                 </RadioGroup>
             </div>
 
             <div className='space-y-3'>
-                <Label className='block text-white'>Background</Label>
+                <Label className='block text-slate-900'>{t('Background')}</Label>
                 <RadioGroup
                     value={background}
                     onValueChange={(value) => setBackground(value as ImageBackground)}
                     disabled={disabled}
                     className='flex flex-wrap gap-x-5 gap-y-3'>
-                    <RadioItemWithIcon value='auto' id={id('bg-auto')} label='Auto' Icon={Sparkles} />
-                    <RadioItemWithIcon value='opaque' id={id('bg-opaque')} label='Opaque' Icon={BrickWall} />
+                    <RadioItemWithIcon value='auto' id={id('bg-auto')} label={t('Auto')} Icon={Sparkles} />
+                    <RadioItemWithIcon value='opaque' id={id('bg-opaque')} label={t('Opaque')} Icon={BrickWall} />
                     <RadioItemWithIcon
                         value='transparent'
                         id={id('bg-transparent')}
-                        label='Transparent'
+                        label={t('Transparent')}
                         Icon={Eraser}
                     />
                 </RadioGroup>
             </div>
 
             <div className='space-y-3'>
-                <Label className='block text-white'>Output Format</Label>
+                <Label className='block text-slate-900'>{t('Output Format')}</Label>
                 <RadioGroup
                     value={outputFormat}
                     onValueChange={(value) => setOutputFormat(value as ImageOutputFormat)}
                     disabled={disabled}
                     className='flex flex-wrap gap-x-5 gap-y-3'>
-                    <RadioItemWithIcon value='png' id={id('format-png')} label='PNG' Icon={FileImage} />
-                    <RadioItemWithIcon value='jpeg' id={id('format-jpeg')} label='JPEG' Icon={FileImage} />
-                    <RadioItemWithIcon value='webp' id={id('format-webp')} label='WebP' Icon={FileImage} />
+                    <RadioItemWithIcon value='png' id={id('format-png')} label={t('PNG')} Icon={FileImage} />
+                    <RadioItemWithIcon value='jpeg' id={id('format-jpeg')} label={t('JPEG')} Icon={FileImage} />
+                    <RadioItemWithIcon value='webp' id={id('format-webp')} label={t('WebP')} Icon={FileImage} />
                 </RadioGroup>
             </div>
 
             {showCompression && (
                 <div className='space-y-2 pt-2 transition-opacity duration-300'>
-                    <Label htmlFor={id('compression-slider')} className='text-white'>
-                        Compression: {compression[0]}%
+                    <Label htmlFor={id('compression-slider')} className='text-slate-900'>
+                        {t('Compression: {value}%', { value: compression[0] })}
                     </Label>
                     <Slider
                         id={id('compression-slider')}
@@ -275,20 +287,20 @@ export function ImageOptions({
                         value={compression}
                         onValueChange={setCompression}
                         disabled={disabled}
-                        className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                        className='mt-3 [&>button]:border-slate-300 [&>button]:bg-indigo-600 [&>button]:ring-offset-white [&>span:first-child]:h-1 [&>span:first-child>span]:bg-indigo-500'
                     />
                 </div>
             )}
 
             <div className='space-y-3'>
-                <Label className='block text-white'>Moderation Level</Label>
+                <Label className='block text-slate-900'>{t('Moderation Level')}</Label>
                 <RadioGroup
                     value={moderation}
                     onValueChange={(value) => setModeration(value as ImageModeration)}
                     disabled={disabled}
                     className='flex flex-wrap gap-x-5 gap-y-3'>
-                    <RadioItemWithIcon value='auto' id={id('mod-auto')} label='Auto' Icon={ShieldCheck} />
-                    <RadioItemWithIcon value='low' id={id('mod-low')} label='Low' Icon={ShieldAlert} />
+                    <RadioItemWithIcon value='auto' id={id('mod-auto')} label={t('Auto')} Icon={ShieldCheck} />
+                    <RadioItemWithIcon value='low' id={id('mod-low')} label={t('Low')} Icon={ShieldAlert} />
                 </RadioGroup>
             </div>
         </>

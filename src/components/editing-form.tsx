@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useI18n } from '@/lib/i18n';
 import {
     GPT_IMAGE_MODELS,
     type GptImageModel,
@@ -156,11 +157,14 @@ export function EditingForm({
     partialImages,
     setPartialImages
 }: EditingFormProps) {
+    const { t } = useI18n();
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
 
     const showCompression = editOutputFormat === 'jpeg' || editOutputFormat === 'webp';
     const customSizeValidation =
-        editSize === 'custom' ? validateCustomSize(editCustomWidth, editCustomHeight) : { valid: true as const };
+        editSize === 'custom'
+        ? validateCustomSize(editCustomWidth, editCustomHeight, t)
+        : { valid: true as const };
     const customSizeInvalid = !customSizeValidation.valid;
 
     // Disable streaming when editN > 1 (OpenAI limitation)
@@ -369,7 +373,7 @@ export function EditingForm({
             const totalFiles = imageFiles.length + newFiles.length;
 
             if (totalFiles > maxImages) {
-                alert(`You can only select up to ${maxImages} images.`);
+                alert(t('You can only select up to {max} images.', { max: maxImages }));
                 const allowedNewFiles = newFiles.slice(0, maxImages - imageFiles.length);
                 if (allowedNewFiles.length === 0) {
                     event.target.value = '';
@@ -414,7 +418,7 @@ export function EditingForm({
         }
 
         if (file.type !== 'image/png') {
-            alert('Invalid file type. Please upload a PNG file for the mask.');
+            alert(t('Invalid file type. Please upload a PNG file for the mask.'));
             event.target.value = '';
             return;
         }
@@ -426,7 +430,15 @@ export function EditingForm({
         img.onload = () => {
             if (img.width !== editOriginalImageSize.width || img.height !== editOriginalImageSize.height) {
                 alert(
-                    `Mask dimensions (${img.width}x${img.height}) must match the source image dimensions (${editOriginalImageSize.width}x${editOriginalImageSize.height}).`
+                    t(
+                        'Mask dimensions ({width}x{height}) must match the source image dimensions ({sourceWidth}x{sourceHeight}).',
+                        {
+                            width: img.width,
+                            height: img.height,
+                            sourceWidth: editOriginalImageSize.width,
+                            sourceHeight: editOriginalImageSize.height
+                        }
+                    )
                 );
                 URL.revokeObjectURL(objectUrl);
                 event.target.value = '';
@@ -452,7 +464,7 @@ export function EditingForm({
         };
 
         img.onerror = () => {
-            alert('Failed to load the uploaded mask image to check dimensions.');
+            alert(t('Failed to load the uploaded mask image to check dimensions.'));
             URL.revokeObjectURL(objectUrl);
             event.target.value = '';
         };
@@ -463,11 +475,11 @@ export function EditingForm({
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (imageFiles.length === 0) {
-            alert('Please select at least one image to edit.');
+            alert(t('Please select at least one image to edit.'));
             return;
         }
         if (editDrawnPoints.length > 0 && !editGeneratedMaskFile && !editIsMaskSaved) {
-            alert('Please save the mask you have drawn before submitting.');
+            alert(t('Please save the mask you have drawn before submitting.'));
             return;
         }
         if (customSizeInvalid) {
@@ -495,30 +507,33 @@ export function EditingForm({
     };
 
     const displayFileNames = (files: File[]) => {
-        if (files.length === 0) return 'No file selected.';
+        if (files.length === 0) return t('No file selected.');
         if (files.length === 1) return files[0].name;
-        return `${files.length} files selected`;
+        return t('{count} files selected', { count: files.length });
     };
 
     return (
-        <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
-            <CardHeader className='flex items-start justify-between border-b border-white/10 pb-4'>
+        <Card className='flex h-full w-full flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(15,23,42,0.25)]'>
+            <CardHeader className='flex items-start justify-between border-b border-slate-100 bg-white px-5 py-4'>
                 <div>
-                    <div className='flex items-center'>
-                        <CardTitle className='py-1 text-lg font-medium text-white'>Edit Image</CardTitle>
+                    <div className='flex items-center gap-2.5'>
+                        <span className='h-2 w-2 shrink-0 rounded-full bg-violet-500' aria-hidden='true' />
+                        <CardTitle className='text-[17px] font-semibold tracking-tight text-slate-900'>
+                            {t('Edit Image')}
+                        </CardTitle>
                         {isPasswordRequiredByBackend && (
                             <Button
                                 variant='ghost'
                                 size='icon'
                                 onClick={onOpenPasswordDialog}
-                                className='ml-2 text-white/60 hover:text-white'
-                                aria-label='Configure Password'>
+                                className='ml-2 text-slate-500 hover:text-slate-900'
+                                aria-label={t('Configure Password')}>
                                 {clientPasswordHash ? <Lock className='h-4 w-4' /> : <LockOpen className='h-4 w-4' />}
                             </Button>
                         )}
                     </div>
-                    <CardDescription className='mt-1 text-white/60'>
-                        Modify an existing image with a text prompt.
+                    <CardDescription className='mt-1 pl-[18px] text-[13px] text-slate-500'>
+                        {t('Modify an existing image with a text prompt.')}
                     </CardDescription>
                 </div>
                 <ModeToggle currentMode={currentMode} onModeChange={onModeChange} />
@@ -526,8 +541,8 @@ export function EditingForm({
             <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
                 <CardContent className='flex-1 space-y-5 overflow-y-auto p-4'>
                     <div className='space-y-1.5'>
-                        <Label htmlFor='edit-model-select' className='text-white'>
-                            Model
+                        <Label htmlFor='edit-model-select' className='text-slate-900'>
+                            {t('Model')}
                         </Label>
                         <div className='flex items-center gap-4'>
                             <Select
@@ -536,12 +551,12 @@ export function EditingForm({
                                 disabled={isLoading}>
                                 <SelectTrigger
                                     id='edit-model-select'
-                                    className='w-[220px] rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                    <SelectValue placeholder='Select model' />
+                                    className='w-[220px] rounded-md border border-slate-200 bg-white text-slate-900 focus:border-indigo-400 focus:ring-indigo-100'>
+                                    <SelectValue placeholder={t('Select model')} />
                                 </SelectTrigger>
-                                <SelectContent className='border-white/20 bg-black text-white'>
+                                <SelectContent className='border-slate-200 bg-white text-slate-900'>
                                     {GPT_IMAGE_MODELS.map((id) => (
-                                        <SelectItem key={id} value={id} className='focus:bg-white/10'>
+                                        <SelectItem key={id} value={id} className='focus:bg-slate-100'>
                                             {id}
                                         </SelectItem>
                                     ))}
@@ -555,19 +570,21 @@ export function EditingForm({
                                             checked={enableStreaming}
                                             onCheckedChange={(checked) => setEnableStreaming(!!checked)}
                                             disabled={isLoading || editN[0] > 1}
-                                            className='border-white/40 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                            className='border-slate-300 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-indigo-600 data-[state=checked]:bg-indigo-600 data-[state=checked]:text-white'
                                         />
                                         <Label
                                             htmlFor='edit-enable-streaming'
-                                            className={`text-sm ${editN[0] > 1 ? 'cursor-not-allowed text-white/40' : 'cursor-pointer text-white/80'}`}>
-                                            Enable Streaming
+                                            className={`text-sm ${editN[0] > 1 ? 'cursor-not-allowed text-slate-400' : 'cursor-pointer text-slate-700'}`}>
+                                            {t('Enable Streaming')}
                                         </Label>
                                     </div>
                                 </TooltipTrigger>
                                 <TooltipContent className='max-w-[250px]'>
                                     {editN[0] > 1
-                                        ? 'Streaming is only supported when generating a single image (n=1).'
-                                        : 'Shows partial preview images as they are generated, providing a more interactive experience.'}
+                                        ? t('Streaming is only supported when generating a single image (n=1).')
+                                        : t(
+                                              'Shows partial preview images as they are generated, providing a more interactive experience.'
+                                          )}
                                 </TooltipContent>
                             </Tooltip>
                         </div>
@@ -576,13 +593,13 @@ export function EditingForm({
                     {enableStreaming && (
                         <div className='space-y-3'>
                             <div className='flex items-center gap-2'>
-                                <Label className='text-white'>Preview Images</Label>
+                                <Label className='text-slate-900'>{t('Preview Images')}</Label>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <HelpCircle className='h-4 w-4 cursor-help text-white/40 hover:text-white/60' />
+                                        <HelpCircle className='h-4 w-4 cursor-help text-slate-400 hover:text-slate-500' />
                                     </TooltipTrigger>
                                     <TooltipContent className='max-w-[250px]'>
-                                        Each preview image adds ~$0.003 to the cost (100 additional output tokens).
+                                        {t('Each preview image adds ~$0.003 to the cost (100 additional output tokens).')}
                                     </TooltipContent>
                                 </Tooltip>
                             </div>
@@ -595,9 +612,9 @@ export function EditingForm({
                                     <RadioGroupItem
                                         value='1'
                                         id='edit-partial-1'
-                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                                        className='border-slate-300 text-slate-500 data-[state=checked]:border-indigo-600 data-[state=checked]:text-indigo-600'
                                     />
-                                    <Label htmlFor='edit-partial-1' className='cursor-pointer text-white/80'>
+                                    <Label htmlFor='edit-partial-1' className='cursor-pointer text-slate-700'>
                                         1
                                     </Label>
                                 </div>
@@ -605,9 +622,9 @@ export function EditingForm({
                                     <RadioGroupItem
                                         value='2'
                                         id='edit-partial-2'
-                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                                        className='border-slate-300 text-slate-500 data-[state=checked]:border-indigo-600 data-[state=checked]:text-indigo-600'
                                     />
-                                    <Label htmlFor='edit-partial-2' className='cursor-pointer text-white/80'>
+                                    <Label htmlFor='edit-partial-2' className='cursor-pointer text-slate-700'>
                                         2
                                     </Label>
                                 </div>
@@ -615,9 +632,9 @@ export function EditingForm({
                                     <RadioGroupItem
                                         value='3'
                                         id='edit-partial-3'
-                                        className='border-white/40 text-white data-[state=checked]:border-white data-[state=checked]:text-white'
+                                        className='border-slate-300 text-slate-500 data-[state=checked]:border-indigo-600 data-[state=checked]:text-indigo-600'
                                     />
-                                    <Label htmlFor='edit-partial-3' className='cursor-pointer text-white/80'>
+                                    <Label htmlFor='edit-partial-3' className='cursor-pointer text-slate-700'>
                                         3
                                     </Label>
                                 </div>
@@ -626,28 +643,30 @@ export function EditingForm({
                     )}
 
                     <div className='space-y-1.5'>
-                        <Label htmlFor='edit-prompt' className='text-white'>
-                            Prompt
+                        <Label htmlFor='edit-prompt' className='text-slate-900'>
+                            {t('Prompt')}
                         </Label>
                         <Textarea
                             id='edit-prompt'
-                            placeholder='e.g., Add a party hat to the main subject'
+                            placeholder={t('e.g., Add a party hat to the main subject')}
                             value={editPrompt}
                             onChange={(e) => setEditPrompt(e.target.value)}
                             required
                             disabled={isLoading}
-                            className='min-h-[80px] rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                            className='min-h-[80px] rounded-md border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-indigo-100'
                         />
                     </div>
 
                     <div className='space-y-2'>
-                        <Label className='text-white'>Source Image(s) [Max: {maxImages}]</Label>
+                        <Label className='text-slate-900'>
+                            {t('Source Image(s) [Max: {max}]', { max: maxImages })}
+                        </Label>
                         <Label
                             htmlFor='image-files-input'
-                            className='flex h-10 w-full cursor-pointer items-center justify-between rounded-md border border-white/20 bg-black px-3 py-2 text-sm transition-colors hover:bg-white/5'>
-                            <span className='truncate pr-2 text-white/60'>{displayFileNames(imageFiles)}</span>
-                            <span className='flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-3 py-1 text-xs font-medium text-white/80 hover:bg-white/20'>
-                                <Upload className='h-3 w-3' /> Browse...
+                            className='flex h-10 w-full cursor-pointer items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm transition-colors hover:bg-slate-50'>
+                            <span className='truncate pr-2 text-slate-500'>{displayFileNames(imageFiles)}</span>
+                            <span className='flex shrink-0 items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200'>
+                                <Upload className='h-3 w-3' /> {t('Browse...')}
                             </span>
                         </Label>
                         <Input
@@ -668,14 +687,14 @@ export function EditingForm({
                                             alt={`Source preview ${index + 1}`}
                                             width={80}
                                             height={80}
-                                            className='rounded border border-white/10 object-cover'
+                                            className='rounded border border-slate-200 object-cover'
                                             unoptimized
                                         />
                                         <Button
                                             type='button'
                                             variant='destructive'
                                             size='icon'
-                                            className='absolute top-0 right-0 h-5 w-5 translate-x-1/3 -translate-y-1/3 transform rounded-full bg-red-600 p-0.5 text-white hover:bg-red-700'
+                                            className='absolute top-0 right-0 h-5 w-5 translate-x-1/3 -translate-y-1/3 transform rounded-full bg-red-600 p-0.5 text-slate-900 hover:bg-red-700'
                                             onClick={() => handleRemoveImage(index)}
                                             aria-label={`Remove image ${index + 1}`}>
                                             <X className='h-3 w-3' />
@@ -687,40 +706,41 @@ export function EditingForm({
                     </div>
 
                     <div className='space-y-3'>
-                        <Label className='block text-white'>Mask</Label>
+                        <Label className='block text-slate-900'>{t('Mask')}</Label>
                         <Button
                             type='button'
                             variant='outline'
                             size='sm'
                             onClick={() => setEditShowMaskEditor(!editShowMaskEditor)}
                             disabled={isLoading || !editOriginalImageSize}
-                            className='w-full justify-start border-white/20 px-3 text-white/80 hover:bg-white/10 hover:text-white'>
+                            className='w-full justify-start border-slate-200 px-3 text-slate-700 hover:bg-slate-100 hover:text-slate-900'>
                             {editShowMaskEditor
-                                ? 'Close Mask Editor'
+                                ? t('Close Mask Editor')
                                 : editGeneratedMaskFile
-                                  ? 'Edit Saved Mask'
-                                  : 'Create Mask'}
+                                  ? t('Edit Saved Mask')
+                                  : t('Create Mask')}
                             {editIsMaskSaved && !editShowMaskEditor && (
-                                <span className='ml-auto text-xs text-green-400'>(Saved)</span>
+                                <span className='ml-auto text-xs text-emerald-600'>{t('(Saved)')}</span>
                             )}
                             <ScanEye className='mt-0.5' />
                         </Button>
 
                         {editShowMaskEditor && firstImagePreviewUrl && editOriginalImageSize && (
-                            <div className='space-y-3 rounded-md border border-white/20 bg-black p-3'>
-                                <p className='text-xs text-white/60'>
-                                    Draw on the image below to mark areas for editing (drawn areas become transparent in
-                                    the mask).
+                            <div className='space-y-3 rounded-md border border-slate-200 bg-white p-3'>
+                                <p className='text-xs text-slate-500'>
+                                    {t(
+                                        'Draw on the image below to mark areas for editing (drawn areas become transparent in the mask).'
+                                    )}
                                 </p>
                                 <div
-                                    className='relative mx-auto w-full overflow-hidden rounded border border-white/10'
+                                    className='relative mx-auto w-full overflow-hidden rounded border border-slate-200'
                                     style={{
                                         maxWidth: `min(100%, ${editOriginalImageSize.width}px)`,
                                         aspectRatio: `${editOriginalImageSize.width} / ${editOriginalImageSize.height}`
                                     }}>
                                     <Image
                                         src={firstImagePreviewUrl}
-                                        alt='Image preview for masking'
+                                        alt={t('Image preview for masking')}
                                         width={editOriginalImageSize.width}
                                         height={editOriginalImageSize.height}
                                         className='block h-auto w-full'
@@ -742,8 +762,8 @@ export function EditingForm({
                                 </div>
                                 <div className='grid grid-cols-1 gap-4 pt-2'>
                                     <div className='space-y-2'>
-                                        <Label htmlFor='brush-size-slider' className='text-sm text-white'>
-                                            Brush Size: {editBrushSize[0]}px
+                                        <Label htmlFor='brush-size-slider' className='text-sm text-slate-900'>
+                                            {t('Brush Size: {size}px', { size: editBrushSize[0] })}
                                         </Label>
                                         <Slider
                                             id='brush-size-slider'
@@ -753,7 +773,7 @@ export function EditingForm({
                                             value={editBrushSize}
                                             onValueChange={setEditBrushSize}
                                             disabled={isLoading}
-                                            className='mt-1 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                                            className='mt-1 [&>button]:border-slate-300 [&>button]:bg-indigo-600 [&>button]:ring-offset-white [&>span:first-child]:h-1 [&>span:first-child>span]:bg-indigo-500'
                                         />
                                     </div>
                                 </div>
@@ -764,8 +784,8 @@ export function EditingForm({
                                         size='sm'
                                         onClick={() => maskInputRef.current?.click()}
                                         disabled={isLoading || !editOriginalImageSize}
-                                        className='mr-auto border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
-                                        <UploadCloud className='mr-1.5 h-4 w-4' /> Upload Mask
+                                        className='mr-auto border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'>
+                                        <UploadCloud className='mr-1.5 h-4 w-4' /> {t('Upload Mask')}
                                     </Button>
                                     <Input
                                         ref={maskInputRef}
@@ -782,8 +802,8 @@ export function EditingForm({
                                             size='sm'
                                             onClick={handleClearMask}
                                             disabled={isLoading}
-                                            className='border-white/20 text-white/80 hover:bg-white/10 hover:text-white'>
-                                            <Eraser className='mr-1.5 h-4 w-4' /> Clear
+                                            className='border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'>
+                                            <Eraser className='mr-1.5 h-4 w-4' /> {t('Clear')}
                                         </Button>
                                         <Button
                                             type='button'
@@ -791,20 +811,20 @@ export function EditingForm({
                                             size='sm'
                                             onClick={generateAndSaveMask}
                                             disabled={isLoading || editDrawnPoints.length === 0}
-                                            className='bg-white text-black hover:bg-white/90 disabled:opacity-50'>
-                                            <Save className='mr-1.5 h-4 w-4' /> Save Mask
+                                            className='bg-indigo-600 text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50'>
+                                            <Save className='mr-1.5 h-4 w-4' /> {t('Save Mask')}
                                         </Button>
                                     </div>
                                 </div>
                                 {editMaskPreviewUrl && (
-                                    <div className='mt-3 border-t border-white/10 pt-3 text-center'>
-                                        <Label className='mb-1.5 block text-sm text-white'>
-                                            Generated Mask Preview:
+                                    <div className='mt-3 border-t border-slate-200 pt-3 text-center'>
+                                        <Label className='mb-1.5 block text-sm text-slate-900'>
+                                            {t('Generated Mask Preview:')}
                                         </Label>
-                                        <div className='inline-block rounded border border-gray-300 bg-white p-1'>
+                                        <div className='inline-block rounded border border-slate-200 bg-white p-1'>
                                             <Image
                                                 src={editMaskPreviewUrl}
-                                                alt='Generated mask preview'
+                                                alt={t('Generated mask preview')}
                                                 width={0}
                                                 height={134}
                                                 className='block max-w-full'
@@ -815,23 +835,25 @@ export function EditingForm({
                                     </div>
                                 )}
                                 {editIsMaskSaved && !editMaskPreviewUrl && (
-                                    <p className='pt-1 text-center text-xs text-yellow-400'>
-                                        Generating mask preview...
+                                    <p className='pt-1 text-center text-xs text-amber-600'>
+                                        {t('Generating mask preview...')}
                                     </p>
                                 )}
                                 {editIsMaskSaved && editMaskPreviewUrl && (
-                                    <p className='pt-1 text-center text-xs text-green-400'>Mask saved successfully!</p>
+                                    <p className='pt-1 text-center text-xs text-emerald-600'>{t('Mask saved successfully!')}</p>
                                 )}
                             </div>
                         )}
                         {!editShowMaskEditor && editGeneratedMaskFile && (
-                            <p className='pt-1 text-xs text-green-400'>Mask applied: {editGeneratedMaskFile.name}</p>
+                            <p className='pt-1 text-xs text-emerald-600'>
+                                {t('Mask applied: {filename}', { filename: editGeneratedMaskFile.name })}
+                            </p>
                         )}
                     </div>
 
                     <div className='space-y-2'>
-                        <Label htmlFor='edit-n-slider' className='text-white'>
-                            Number of Images: {editN[0]}
+                        <Label htmlFor='edit-n-slider' className='text-slate-900'>
+                            {t('Number of Images: {count}', { count: editN[0] })}
                         </Label>
                         <Slider
                             id='edit-n-slider'
@@ -841,7 +863,7 @@ export function EditingForm({
                             value={editN}
                             onValueChange={setEditN}
                             disabled={isLoading}
-                            className='mt-3 [&>button]:border-black [&>button]:bg-white [&>button]:ring-offset-black [&>span:first-child]:h-1 [&>span:first-child>span]:bg-white'
+                            className='mt-3 [&>button]:border-slate-300 [&>button]:bg-indigo-600 [&>button]:ring-offset-white [&>span:first-child]:h-1 [&>span:first-child>span]:bg-indigo-500'
                         />
                     </div>
 
@@ -868,13 +890,13 @@ export function EditingForm({
                         setModeration={setEditModeration}
                     />
                 </CardContent>
-                <CardFooter className='border-t border-white/10 p-4'>
+                <CardFooter className='border-t border-slate-200 p-4'>
                     <Button
                         type='submit'
                         disabled={isLoading || !editPrompt || imageFiles.length === 0 || customSizeInvalid}
-                        className='flex w-full items-center justify-center gap-2 rounded-md bg-white text-black hover:bg-white/90 disabled:bg-white/10 disabled:text-white/40'>
+                        className='flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 text-white shadow-sm hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
                         {isLoading && <Loader2 className='h-4 w-4 animate-spin' />}
-                        {isLoading ? 'Editing...' : 'Edit Image'}
+                        {isLoading ? t('Editing...') : t('Edit Image')}
                     </Button>
                 </CardFooter>
             </form>
