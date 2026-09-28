@@ -1,0 +1,21 @@
+name: check
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Nothing here talks to the provider or needs a key: `check` is lint, the type checker, the unit
+# tests and the translation sweep — the gates that catch a change which would only fail at runtime,
+# on a machine that has already spent money finding out.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check

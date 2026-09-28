@@ -5,130 +5,186 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { useI18n } from '@/lib/i18n';
-import { Eraser, Save, UploadCloud } from 'lucide-react';
+import { Brush, Eraser, Save, Trash2, UploadCloud } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
-
-type DrawnPoint = { x: number; y: number; size: number };
 
 export type MaskEditorProps = {
     /** Image the mask is drawn on (object URL or /api/image/<file>). */
     imageUrl: string;
     imageWidth: number;
     imageHeight: number;
-    /** Fired whenever the saved mask changes; null means "no mask". */
+    /** Fired whenever the mask changes; null means "no mask". */
     onMaskChange: (file: File | null) => void;
-    /** Object URL of the mask already attached to this node, if any. */
-    initialPreviewUrl?: string | null;
-    /** Fired with the generated/uploaded mask preview data URL (used to remember the state). */
-    onPreviewChange?: (dataUrl: string | null) => void;
+    /** Object URL of the mask already saved for this picture, loaded so it can be edited further. */
+    initialMaskUrl?: string | null;
     disabled?: boolean;
 };
 
 /**
- * Self-contained mask painter: draw with the brush, upload a PNG mask, clear, or save.
- * Used by the editing form and by the canvas node dialog.
+ * Mask painter: brush, eraser, upload, clear, save.
+ *
+ * The editing surface is a bitmap of the *repaintable* area — the inverse of the stored mask, which
+ * is black where the picture must stay untouched and transparent where the model may change it.
+ *
+ * Keeping that bitmap alive across saves is what makes a saved mask editable. The previous version
+ * kept only the strokes of the current session and rebuilt the mask from them on every save, so a
+ * second visit could only replace the first mask wholesale; now the stored mask is loaded into the
+ * bitmap on open, which means strokes add to what is already there and the eraser takes parts away.
  */
 export function MaskEditor({
     imageUrl,
     imageWidth,
     imageHeight,
     onMaskChange,
-    onPreviewChange,
-    initialPreviewUrl = null,
+    initialMaskUrl = null,
     disabled = false
 }: MaskEditorProps) {
     const { t } = useI18n();
     const [brushSize, setBrushSize] = React.useState(20);
-    const [drawnPoints, setDrawnPoints] = React.useState<DrawnPoint[]>([]);
-    // Seeded from the stored mask so re-opening the editor shows what is actually applied instead of
-    // an empty canvas — painting one stroke used to silently replace the whole mask.
-    const [isMaskSaved, setIsMaskSaved] = React.useState(Boolean(initialPreviewUrl));
-    const [maskPreviewUrl, setMaskPreviewUrl] = React.useState<string | null>(initialPreviewUrl ?? null);
+    /** Paint adds to the repaintable area, erase takes it away. */
+    const [tool, setTool] = React.useState<'brush' | 'eraser'>('brush');
+    /** Something has been drawn or erased since the last save. */
+    const [isDirty, setIsDirty] = React.useState(false);
+    /** The mask as it is currently stored — what a run would actually send. */
+    const [appliedPreviewUrl, setAppliedPreviewUrl] = React.useState<string | null>(initialMaskUrl ?? null);
     const [isGeneratingPreview, setIsGeneratingPreview] = React.useState(false);
+    const [error, setError] = React.useState<string | null>(null);
 
     const canvasRef = React.useRef<HTMLCanvasElement>(null);
-    const feedbackCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
+    /** Offscreen bitmap of the repaintable area, painted red (only its alpha is used). */
+    const paintRef = React.useRef<HTMLCanvasElement | null>(null);
     const isDrawing = React.useRef(false);
     const lastPos = React.useRef<{ x: number; y: number } | null>(null);
     const maskInputRef = React.useRef<HTMLInputElement>(null);
 
-    // Keep the offscreen feedback canvas in sync with the source image size.
+    const paintCanvas = () => {
+        const existing = paintRef.current;
+        if (existing) return existing;
+        const created = document.createElement('canvas');
+        paintRef.current = created;
+        return created;
+    };
+
+    /** Draws the paint bitmap onto the visible canvas as a translucent red overlay. */
+    const redraw = React.useCallback(() => {
+        const display = canvasRef.current;
+        const paint = paintRef.current;
+        const ctx = display?.getContext('2d');
+        if (!display || !paint || !ctx) return;
+        ctx.clearRect(0, 0, display.width, display.height);
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(paint, 0, 0, display.width, display.height);
+        ctx.restore();
+    }, []);
+
+    /**
+     * Loads a mask PNG into the paint bitmap.
+     *
+     * The stored mask is opaque (black) where the picture must stay untouched, so painting the bitmap
+     * solid and then *removing* the mask's opaque pixels with `destination-out` leaves exactly the
+     * repaintable area — soft edges included, no per-pixel loop needed.
+     */
+    const loadMaskIntoPaint = React.useCallback(
+        (source: string, onLoaded?: () => void) => {
+            const paint = paintCanvas();
+            paint.width = imageWidth;
+            paint.height = imageHeight;
+            const ctx = paint.getContext('2d');
+            if (!ctx) return;
+
+            const img = new window.Image();
+            img.onload = () => {
+                ctx.save();
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(0, 0, paint.width, paint.height);
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.drawImage(img, 0, 0, paint.width, paint.height);
+                ctx.restore();
+                onLoaded?.();
+                redraw();
+            };
+            img.onerror = () => {
+                console.error('Could not read the stored mask — starting from an empty one.');
+                paint.width = imageWidth;
+                paint.height = imageHeight;
+                onLoaded?.();
+                redraw();
+            };
+            img.src = source;
+        },
+        [imageHeight, imageWidth, redraw]
+    );
+
+    // Open with the stored mask already in place, sized to the picture. Assigning width/height also
+    // clears the bitmap, which is what "no stored mask" needs. No state is set here: a different
+    // picture means a different `key` on this component (see MaskTargetEditor), so the initial state
+    // is already correct.
     React.useEffect(() => {
-        if (!feedbackCanvasRef.current) {
-            feedbackCanvasRef.current = document.createElement('canvas');
+        if (initialMaskUrl) {
+            loadMaskIntoPaint(initialMaskUrl);
+            return;
         }
-        feedbackCanvasRef.current.width = imageWidth;
-        feedbackCanvasRef.current.height = imageHeight;
-    }, [imageWidth, imageHeight]);
+        const paint = paintCanvas();
+        paint.width = imageWidth;
+        paint.height = imageHeight;
+        redraw();
+    }, [imageHeight, imageWidth, initialMaskUrl, loadMaskIntoPaint, redraw]);
 
-    // Repaint the red overlay every time the stroke set changes.
-    React.useEffect(() => {
-        const displayCanvas = canvasRef.current;
-        const feedbackCanvas = feedbackCanvasRef.current;
-        const displayCtx = displayCanvas?.getContext('2d');
-        if (!displayCanvas || !feedbackCanvas || !displayCtx) return;
-
-        const feedbackCtx = feedbackCanvas.getContext('2d');
-        if (!feedbackCtx) return;
-
-        feedbackCtx.clearRect(0, 0, feedbackCanvas.width, feedbackCanvas.height);
-        feedbackCtx.fillStyle = 'red';
-        drawnPoints.forEach((point) => {
-            feedbackCtx.beginPath();
-            feedbackCtx.arc(point.x, point.y, point.size, 0, Math.PI * 2);
-            feedbackCtx.fill();
-        });
-
-        displayCtx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-        displayCtx.save();
-        displayCtx.globalAlpha = 0.5;
-        displayCtx.drawImage(feedbackCanvas, 0, 0, displayCanvas.width, displayCanvas.height);
-        displayCtx.restore();
-    }, [drawnPoints]);
-
-    const getMousePos = (e: React.MouseEvent | React.TouchEvent) => {
+    const getPointerPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
         const canvas = canvasRef.current;
         if (!canvas) return null;
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+        return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
     };
 
-    const addPoint = (x: number, y: number) => {
-        setDrawnPoints((prev) => [...prev, { x, y, size: brushSize }]);
-        setIsMaskSaved(false);
-        setMaskPreviewUrl(null);
-        onPreviewChange?.(null);
+    /** One segment of a stroke, drawn straight into the bitmap. */
+    const strokeTo = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+        const paint = paintRef.current;
+        const ctx = paint?.getContext('2d');
+        if (!paint || !ctx) return;
+        ctx.save();
+        ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
+        ctx.strokeStyle = '#ff0000';
+        // The slider is a radius, as it was when each point was an arc of that size.
+        ctx.lineWidth = brushSize * 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+        ctx.restore();
     };
 
-    const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+    const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
         if (disabled) return;
         e.preventDefault();
-        isDrawing.current = true;
-        const pos = getMousePos(e);
+        // Pointer capture keeps the stroke alive once the pointer leaves the canvas. React attaches
+        // touchmove passively, so the old onTouchMove + preventDefault() did not stop the page from
+        // scrolling under a finger; `touch-action: none` on the canvas does.
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        const pos = getPointerPos(e);
         if (!pos) return;
+        isDrawing.current = true;
         lastPos.current = pos;
-        addPoint(pos.x, pos.y);
+        strokeTo(pos, pos);
+        setIsDirty(true);
+        redraw();
     };
 
-    const drawLine = (e: React.MouseEvent | React.TouchEvent) => {
+    const drawLine = (e: React.PointerEvent<HTMLCanvasElement>) => {
         if (!isDrawing.current) return;
         e.preventDefault();
-        const pos = getMousePos(e);
+        const pos = getPointerPos(e);
         if (!pos || !lastPos.current) return;
-
-        const dist = Math.hypot(pos.x - lastPos.current.x, pos.y - lastPos.current.y);
-        const angle = Math.atan2(pos.y - lastPos.current.y, pos.x - lastPos.current.x);
-        const step = Math.max(1, brushSize / 4);
-        for (let i = step; i < dist; i += step) {
-            addPoint(lastPos.current.x + Math.cos(angle) * i, lastPos.current.y + Math.sin(angle) * i);
-        }
-        addPoint(pos.x, pos.y);
+        strokeTo(lastPos.current, pos);
         lastPos.current = pos;
+        redraw();
     };
 
     const stopDrawing = () => {
@@ -137,58 +193,52 @@ export function MaskEditor({
     };
 
     const handleClearMask = () => {
-        setDrawnPoints([]);
-        setIsMaskSaved(false);
-        setMaskPreviewUrl(null);
-        onPreviewChange?.(null);
+        const paint = paintCanvas();
+        paint.width = imageWidth;
+        paint.height = imageHeight;
+        setIsDirty(false);
+        setAppliedPreviewUrl(null);
         onMaskChange(null);
+        redraw();
     };
 
-    /** Drawn areas become transparent (destination-out) so the API treats them as editable. */
-    const saveMask = () => {
-        if (drawnPoints.length === 0) {
-            setIsMaskSaved(false);
-            setMaskPreviewUrl(null);
-            onPreviewChange?.(null);
-            onMaskChange(null);
-            return;
-        }
-
-        const offscreen = document.createElement('canvas');
-        offscreen.width = imageWidth;
-        offscreen.height = imageHeight;
-        const ctx = offscreen.getContext('2d');
-        if (!ctx) return;
-
+    /** Black everywhere, transparent in the repaintable area — the shape the API expects. */
+    const buildMaskCanvas = () => {
+        const paint = paintRef.current;
+        const output = document.createElement('canvas');
+        output.width = imageWidth;
+        output.height = imageHeight;
+        const ctx = output.getContext('2d');
+        if (!ctx || !paint) return null;
         ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, offscreen.width, offscreen.height);
+        ctx.fillRect(0, 0, output.width, output.height);
         ctx.globalCompositeOperation = 'destination-out';
-        drawnPoints.forEach((point) => {
-            ctx.beginPath();
-            ctx.arc(point.x, point.y, point.size, 0, Math.PI * 2);
-            ctx.fill();
-        });
+        ctx.drawImage(paint, 0, 0);
+        ctx.globalCompositeOperation = 'source-over';
+        return output;
+    };
+
+    const saveMask = () => {
+        const output = buildMaskCanvas();
+        if (!output) return;
 
         setIsGeneratingPreview(true);
         try {
-            const dataUrl = offscreen.toDataURL('image/png');
-            setMaskPreviewUrl(dataUrl);
-            onPreviewChange?.(dataUrl);
-        } catch (error) {
-            console.error('Error generating mask preview data URL:', error);
-            setMaskPreviewUrl(null);
-            onPreviewChange?.(null);
+            const dataUrl = output.toDataURL('image/png');
+            setAppliedPreviewUrl(dataUrl);
+        } catch (previewError) {
+            console.error('Error generating mask preview data URL:', previewError);
+            setAppliedPreviewUrl(null);
         }
 
-        offscreen.toBlob((blob) => {
+        output.toBlob((blob) => {
             setIsGeneratingPreview(false);
             if (!blob) {
                 console.error('Failed to generate mask blob.');
-                setIsMaskSaved(false);
                 return;
             }
             const file = new File([blob], 'generated-mask.png', { type: 'image/png' });
-            setIsMaskSaved(true);
+            setIsDirty(false);
             onMaskChange(file);
         }, 'image/png');
     };
@@ -201,18 +251,17 @@ export function MaskEditor({
         }
 
         if (file.type !== 'image/png') {
-            alert(t('Invalid file type. Please upload a PNG file for the mask.'));
+            setError(t('Invalid file type. Please upload a PNG file for the mask.'));
             event.target.value = '';
             return;
         }
 
-        const reader = new FileReader();
-        const img = new window.Image();
         const objectUrl = URL.createObjectURL(file);
+        const img = new window.Image();
 
         img.onload = () => {
             if (img.width !== imageWidth || img.height !== imageHeight) {
-                alert(
+                setError(
                     t(
                         'Mask dimensions ({width}x{height}) must match the source image dimensions ({sourceWidth}x{sourceHeight}).',
                         {
@@ -228,27 +277,16 @@ export function MaskEditor({
                 return;
             }
 
-            setDrawnPoints([]);
-            setIsMaskSaved(true);
+            setError(null);
+            // The upload replaces the whole mask, and is then editable like any other.
+            setAppliedPreviewUrl(objectUrl);
             onMaskChange(file);
-
-            reader.onloadend = () => {
-                setMaskPreviewUrl(reader.result as string);
-                onPreviewChange?.(reader.result as string);
-                URL.revokeObjectURL(objectUrl);
-            };
-            reader.onerror = () => {
-                console.error('Error reading mask file for preview.');
-                setMaskPreviewUrl(null);
-                onPreviewChange?.(null);
-                URL.revokeObjectURL(objectUrl);
-            };
-            reader.readAsDataURL(file);
+            loadMaskIntoPaint(objectUrl, () => setIsDirty(false));
             event.target.value = '';
         };
 
         img.onerror = () => {
-            alert(t('Failed to load the uploaded mask image to check dimensions.'));
+            setError(t('Failed to load the uploaded mask image to check dimensions.'));
             URL.revokeObjectURL(objectUrl);
             event.target.value = '';
         };
@@ -282,25 +320,66 @@ export function MaskEditor({
                     ref={canvasRef}
                     width={imageWidth}
                     height={imageHeight}
+                    role='application'
+                    aria-label={t('Mask drawing area — paint over the parts you want to edit')}
                     className={`absolute top-0 left-0 h-full w-full ${
                         disabled ? 'cursor-not-allowed' : 'cursor-crosshair'
                     }`}
-                    onMouseDown={startDrawing}
-                    onMouseMove={drawLine}
-                    onMouseUp={stopDrawing}
-                    onMouseLeave={stopDrawing}
-                    onTouchStart={startDrawing}
-                    onTouchMove={drawLine}
-                    onTouchEnd={stopDrawing}
+                    // Without this a finger drag scrolls the page instead of painting.
+                    style={{ touchAction: 'none' }}
+                    onPointerDown={startDrawing}
+                    onPointerMove={drawLine}
+                    onPointerUp={stopDrawing}
+                    onPointerCancel={stopDrawing}
+                    onPointerLeave={stopDrawing}
                 />
             </div>
 
             <div className='space-y-2'>
-                <Label htmlFor='mask-brush-size' className='text-sm text-slate-700'>
-                    {t('Brush Size: {size}px', { size: brushSize })}
-                </Label>
+                <div className='flex items-center gap-2'>
+                    {/* Two tools, one canvas: the brush extends the repaintable area, the eraser trims it. */}
+                    <div
+                        className='flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5'
+                        role='group'
+                        aria-label={t('Tool')}>
+                        <button
+                            type='button'
+                            aria-pressed={tool === 'brush'}
+                            title={t('Brush')}
+                            onClick={() => setTool('brush')}
+                            disabled={disabled}
+                            className={`flex h-7 items-center gap-1 rounded-md px-2 text-[12px] transition-colors disabled:opacity-40 ${
+                                tool === 'brush'
+                                    ? 'bg-indigo-50 text-indigo-600'
+                                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                            }`}>
+                            <Brush className='h-3.5 w-3.5' />
+                            {t('Brush')}
+                        </button>
+                        <button
+                            type='button'
+                            aria-pressed={tool === 'eraser'}
+                            title={t('Eraser')}
+                            onClick={() => setTool('eraser')}
+                            disabled={disabled}
+                            className={`flex h-7 items-center gap-1 rounded-md px-2 text-[12px] transition-colors disabled:opacity-40 ${
+                                tool === 'eraser'
+                                    ? 'bg-indigo-50 text-indigo-600'
+                                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                            }`}>
+                            <Eraser className='h-3.5 w-3.5' />
+                            {t('Eraser')}
+                        </button>
+                    </div>
+                    <Label htmlFor='mask-brush-size' className='ml-auto text-sm text-slate-700'>
+                        {t('Brush Size: {size}px', { size: brushSize })}
+                    </Label>
+                </div>
                 <Slider
                     id='mask-brush-size'
+                    // The Label above points at the Radix root, which is not the element carrying
+                    // role="slider" — without this the thumb is announced without a name.
+                    aria-label={t('Brush size in pixels')}
                     min={5}
                     max={100}
                     step={1}
@@ -337,40 +416,44 @@ export function MaskEditor({
                         onClick={handleClearMask}
                         disabled={disabled}
                         className='border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
-                        <Eraser className='mr-1.5 h-4 w-4' /> {t('Clear')}
+                        <Trash2 className='mr-1.5 h-4 w-4' /> {t('Clear')}
                     </Button>
                     <Button
                         type='button'
                         size='sm'
                         onClick={saveMask}
-                        disabled={disabled || drawnPoints.length === 0}
+                        disabled={disabled || !isDirty}
                         className='bg-indigo-600 text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50'>
-                        <Save className='mr-1.5 h-4 w-4' />{' '}
-                        {initialPreviewUrl && drawnPoints.length > 0 ? t('Save and replace mask') : t('Save Mask')}
+                        <Save className='mr-1.5 h-4 w-4' /> {isDirty ? t('Save changes') : t('Save Mask')}
                     </Button>
                 </div>
             </div>
 
-            {maskPreviewUrl && (
+            {error && (
+                <p role='alert' className='text-xs text-red-600'>
+                    {error}
+                </p>
+            )}
+            {appliedPreviewUrl && (
                 <div className='border-t border-slate-100 pt-3 text-center'>
                     <Label className='mb-1.5 block text-sm text-slate-700'>{t('Generated Mask Preview:')}</Label>
                     <div className='inline-block rounded border border-slate-200 bg-white p-1'>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={maskPreviewUrl} alt={t('Generated mask preview')} className='block max-w-full' style={{ height: 134, width: 'auto' }} />
+                        <img
+                            src={appliedPreviewUrl}
+                            alt={t('Generated mask preview')}
+                            className='block max-w-full'
+                            style={{ height: 134, width: 'auto' }}
+                        />
                     </div>
                 </div>
             )}
-            {isGeneratingPreview && !maskPreviewUrl && (
+            {isGeneratingPreview && !appliedPreviewUrl && (
                 <p className='pt-1 text-center text-xs text-amber-600'>{t('Generating mask preview...')}</p>
             )}
-            {isMaskSaved && maskPreviewUrl && drawnPoints.length === 0 && (
-                <p className='pt-1 text-center text-xs text-slate-500'>
-                    {t('This is the mask currently applied to the node. Painting replaces it entirely — use Clear to drop it.')}
-                </p>
-            )}
-            {isMaskSaved && maskPreviewUrl && drawnPoints.length > 0 && (
+            {isDirty && (
                 <p className='pt-1 text-center text-xs text-amber-600'>
-                    {t('Saving now replaces the whole mask with the strokes you just painted.')}
+                    {t('Unsaved changes — press Save to apply them.')}
                 </p>
             )}
         </div>

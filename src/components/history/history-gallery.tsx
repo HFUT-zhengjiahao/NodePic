@@ -36,15 +36,18 @@ export type HistoryGalleryProps = {
     onCleanupUnusedImages: () => void;
     /** Re-creates entries for pictures that are on disk but missing from the list. */
     onRebuildFromDisk: () => void;
-    /** Puts the picture on the active canvas as a new node. */
-    onSendToCanvas: (filename: string) => void;
+    /** Puts pictures on the active canvas as new nodes. Takes a whole entry's worth at once. */
+    onSendToCanvas: (filenames: string[]) => void;
     skipConfirm: boolean;
     onSkipConfirmChange: (skip: boolean) => void;
 };
 
 type ModeFilter = 'all' | 'generate' | 'edit';
 
-const dayLabel = (timestamp: number) => new Date(timestamp).toLocaleDateString();
+const dayLabel = (timestamp: number, locale: string) => new Date(timestamp).toLocaleDateString(locale);
+
+/** Enum values (`high`, `transparent`) are translated through their capitalised dictionary keys. */
+const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 /**
  * Full-page gallery of everything that was ever generated.
@@ -65,11 +68,21 @@ export function HistoryGallery({
     skipConfirm,
     onSkipConfirmChange
 }: HistoryGalleryProps) {
-    const { t } = useI18n();
+    const { t, language } = useI18n();
+    // Dates followed the browser locale instead of the app language, so a Chinese UI showed
+    // "9/22/2026" next to Chinese text.
+    const locale = language === 'zh' ? 'zh-CN' : 'en-US';
     const [query, setQuery] = React.useState('');
     const [modeFilter, setModeFilter] = React.useState<ModeFilter>('all');
+    /** Pictures the server could not serve (trashed, moved, renamed) — shown as placeholders. */
+    const [broken, setBroken] = React.useState<ReadonlySet<string>>(new Set());
+    const markBroken = React.useCallback((filename: string) => {
+        setBroken((prev) => (prev.has(filename) ? prev : new Set(prev).add(filename)));
+    }, []);
     const [detail, setDetail] = React.useState<HistoryMetadata | null>(null);
     const [copiedTimestamp, setCopiedTimestamp] = React.useState<number | null>(null);
+    /** Timestamp of the entry whose copy attempt failed, so the button says so instead of idling. */
+    const [copyFailedFor, setCopyFailedFor] = React.useState<number | null>(null);
     const [pendingDelete, setPendingDelete] = React.useState<HistoryMetadata | null>(null);
     const [dontAskAgain, setDontAskAgain] = React.useState(false);
 
@@ -90,13 +103,13 @@ export function HistoryGallery({
     const grouped = React.useMemo(() => {
         const groups: Array<{ day: string; entries: HistoryMetadata[] }> = [];
         for (const entry of filtered) {
-            const day = dayLabel(entry.timestamp);
+            const day = dayLabel(entry.timestamp, locale);
             const last = groups[groups.length - 1];
             if (last && last.day === day) last.entries.push(entry);
             else groups.push({ day, entries: [entry] });
         }
         return groups;
-    }, [filtered]);
+    }, [filtered, locale]);
 
     const requestDelete = (item: HistoryMetadata) => {
         const warning = describeReferenceWarning(item);
@@ -108,13 +121,25 @@ export function HistoryGallery({
         setPendingDelete(item);
     };
 
+    // The timer lives in an effect so it is cleaned up: the old inline setTimeout kept firing
+    // after the gallery was unmounted (switching back to the canvas view).
+    React.useEffect(() => {
+        if (copiedTimestamp === null) return;
+        const timer = window.setTimeout(() => setCopiedTimestamp(null), 1500);
+        return () => window.clearTimeout(timer);
+    }, [copiedTimestamp]);
+
     const copyPrompt = async (item: HistoryMetadata) => {
         try {
             await navigator.clipboard.writeText(item.prompt ?? '');
+            setCopyFailedFor(null);
             setCopiedTimestamp(item.timestamp);
-            window.setTimeout(() => setCopiedTimestamp(null), 1500);
         } catch (error) {
+            // navigator.clipboard is unavailable on insecure origins (http://192.168.x.x:3000),
+            // so failing quietly meant the button just did nothing.
             console.error('Could not copy the prompt:', error);
+            setCopiedTimestamp(null);
+            setCopyFailedFor(item.timestamp);
         }
     };
 
@@ -133,6 +158,7 @@ export function HistoryGallery({
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder={t('Search prompts…')}
+                        aria-label={t('Search prompts…')}
                         className='h-8 w-56 border-slate-200 bg-white pl-7 text-[13px]'
                     />
                 </div>
@@ -142,8 +168,9 @@ export function HistoryGallery({
                         <button
                             key={value}
                             type='button'
+                            aria-pressed={modeFilter === value}
                             onClick={() => setModeFilter(value)}
-                            className={`rounded-md px-2 py-1 text-[12px] transition-colors ${
+                            className={`rounded-md px-2 py-1 text-[12px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-400 ${
                                 modeFilter === value
                                     ? 'bg-indigo-50 text-indigo-600'
                                     : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
@@ -213,7 +240,7 @@ export function HistoryGallery({
                                                 type='button'
                                                 onClick={() => setDetail(entry)}
                                                 className='relative block aspect-square w-full bg-slate-50'>
-                                                {src ? (
+                                                {src && !broken.has(image.filename) ? (
                                                     <Image
                                                         src={src}
                                                         alt={entry.prompt?.slice(0, 40) || image.filename}
@@ -221,6 +248,10 @@ export function HistoryGallery({
                                                         sizes='(max-width: 768px) 50vw, 20vw'
                                                         className='object-cover'
                                                         unoptimized
+                                                        // A picture moved to the trash (or a renamed
+                                                        // folder) used to leave a broken <img> forever;
+                                                        // now the card says so instead.
+                                                        onError={() => markBroken(image.filename)}
                                                     />
                                                 ) : (
                                                     <span className='flex h-full items-center justify-center text-[11px] text-slate-400'>
@@ -248,12 +279,11 @@ export function HistoryGallery({
                                                 </p>
                                                 <div className='flex items-center justify-between text-[10px] text-slate-400'>
                                                     <span>
-                                                        {new Date(entry.timestamp).toLocaleTimeString([], {
+                                                        {new Date(entry.timestamp).toLocaleTimeString(locale, {
                                                             hour: '2-digit',
                                                             minute: '2-digit'
                                                         })}
-                                                        {' · '}
-                                                        {entry.model ?? 'gpt-image-1'}
+                                                        {entry.model ? ' · ' + entry.model : ''}
                                                     </span>
                                                     {cost ? <span>${(cost / entry.images.length).toFixed(4)}</span> : null}
                                                 </div>
@@ -261,12 +291,14 @@ export function HistoryGallery({
                                                     <button
                                                         type='button'
                                                         title={t('Expand')}
+                                                        aria-label={t('Expand')}
                                                         onClick={() => setDetail(entry)}
                                                         className='rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700'>
                                                         <Maximize2 className='h-3.5 w-3.5' />
                                                     </button>
                                                     <a
                                                         title={t('Download')}
+                                                        aria-label={t('Download')}
                                                         href={src}
                                                         download={image.filename}
                                                         className='rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700'>
@@ -275,13 +307,15 @@ export function HistoryGallery({
                                                     <button
                                                         type='button'
                                                         title={t('Send to canvas')}
-                                                        onClick={() => onSendToCanvas(image.filename)}
+                                                        aria-label={t('Send to canvas')}
+                                                        onClick={() => onSendToCanvas([image.filename])}
                                                         className='rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700'>
                                                         <ImagePlus className='h-3.5 w-3.5' />
                                                     </button>
                                                     <button
                                                         type='button'
                                                         title={t('Delete history item')}
+                                                        aria-label={t('Delete history item')}
                                                         onClick={() => requestDelete(entry)}
                                                         className='ml-auto rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600'>
                                                         <Trash2 className='h-3.5 w-3.5' />
@@ -307,8 +341,9 @@ export function HistoryGallery({
                                     {detail.mode === 'edit' ? t('Edit Image') : t('Generate Image')}
                                 </DialogTitle>
                                 <DialogDescription className='text-[12px] text-slate-500'>
-                                    {new Date(detail.timestamp).toLocaleString()} · {detail.model ?? 'gpt-image-1'} ·{' '}
-                                    {detail.quality} · {detail.background} · {(detail.output_format ?? 'png').toUpperCase()}
+                                    {new Date(detail.timestamp).toLocaleString(locale)}
+                                    {detail.model ? ` · ${detail.model}` : ''} · {t(capitalise(detail.quality))} ·{' '}
+                                    {t(capitalise(detail.background))} · {(detail.output_format ?? 'png').toUpperCase()}
                                     {detail.costDetails
                                         ? ` · $${detail.costDetails.estimated_cost_usd.toFixed(4)}`
                                         : ''}
@@ -353,14 +388,18 @@ export function HistoryGallery({
                                     onClick={() => void copyPrompt(detail)}
                                     className='border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
                                     <Copy className='mr-1.5 h-3.5 w-3.5' />
-                                    {copiedTimestamp === detail.timestamp ? t('Copied!') : t('Copy')}
+                                    {copiedTimestamp === detail.timestamp
+                                        ? t('Copied!')
+                                        : copyFailedFor === detail.timestamp
+                                          ? t('Copy failed')
+                                          : t('Copy')}
                                 </Button>
                                 <Button
                                     type='button'
                                     variant='outline'
                                     size='sm'
                                     onClick={() => {
-                                        detail.images.forEach((image) => onSendToCanvas(image.filename));
+                                        onSendToCanvas(detail.images.map((image) => image.filename));
                                         setDetail(null);
                                     }}
                                     className='border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'>

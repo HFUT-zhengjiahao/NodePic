@@ -8,6 +8,16 @@ import {
     type ImageQuality
 } from '@/lib/models';
 import type { SizePreset } from '@/lib/size-utils';
+import type { Node } from '@xyflow/react';
+
+/**
+ * One node on a board: a task plus where it sits.
+ *
+ * Defined here rather than in each module that needs it, so "a stored node", "a layout node" and "a
+ * rendered node" cannot drift apart. The modules that already talk about them re-export this under
+ * the name that fits their context (`StoredCanvasNode`, `TaskNodeType`).
+ */
+export type CanvasTaskNode = Node<CanvasTaskData, 'task'>;
 
 /** A finished image belonging to a node, as served by /api/image/<filename>. */
 export type CanvasTaskImage = {

@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { useI18n } from '@/lib/i18n';
 import { GPT_IMAGE_MODELS, type GptImageModel, type ImageQuality } from '@/lib/models';
 import type { SizePreset } from '@/lib/size-utils';
-import { FolderOpen, Power, Settings as SettingsIcon } from 'lucide-react';
+import { FolderOpen, KeyRound, Power, Settings as SettingsIcon } from 'lucide-react';
 import * as React from 'react';
 
 export type ClientDefaults = {
@@ -32,6 +32,13 @@ type ServerSettingsState = {
     resolvedOutputDir: string;
     fileCount: number;
     totalBytes: number;
+    /** The endpoint the key belongs to; empty means the official API. */
+    openaiBaseUrl: string;
+    apiKeyConfigured: boolean;
+    /** Last characters of the saved key, so it can be recognised without being shown. */
+    apiKeyHint: string;
+    /** True when the key comes from .env.local instead of this panel. */
+    apiKeyFromEnv: boolean;
 };
 
 const QUALITY_CHOICES: ImageQuality[] = ['auto', 'low', 'medium', 'high'];
@@ -59,34 +66,48 @@ export function SettingsButton({
     const [draftDir, setDraftDir] = React.useState('');
     const [retentionDraft, setRetentionDraft] = React.useState('30');
     const [moveExisting, setMoveExisting] = React.useState(true);
-    const [busy, setBusy] = React.useState(false);
+    // Two independent flags: one shared `busy` meant applying the retention days also disabled and
+    // re-labelled the folder button, as if it were saving too.
+    const [savingDir, setSavingDir] = React.useState(false);
+    const [savingRetention, setSavingRetention] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
+    const [apiKeyDraft, setApiKeyDraft] = React.useState('');
+    const [baseUrlDraft, setBaseUrlDraft] = React.useState('');
+    const [savingApi, setSavingApi] = React.useState(false);
+    const [isShuttingDown, setIsShuttingDown] = React.useState(false);
+    const [passwordDraft, setPasswordDraft] = React.useState('');
+    const [savingPassword, setSavingPassword] = React.useState(false);
 
     const load = React.useCallback(async () => {
         try {
-            // The endpoint reports absolute paths, so it is gated like the write routes are.
-            const query = passwordHash ? `?passwordHash=${encodeURIComponent(passwordHash)}` : '';
-            const response = await fetch(`/api/settings${query}`, { cache: 'no-store' });
+            // The endpoint reports absolute paths, so it is gated like the write routes are. The
+            // password travels in the auth cookie rather than the query string.
+            const response = await fetch('/api/settings', { cache: 'no-store' });
             const payload = await response.json();
-            if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+            if (!response.ok) throw new Error(payload?.error ?? t('Request failed with status {status}', { status: response.status }));
             setServer({
                 outputDir: payload.settings.outputDir,
                 trashRetentionDays: payload.settings.trashRetentionDays,
                 resolvedOutputDir: payload.resolvedOutputDir,
                 fileCount: payload.fileCount,
-                totalBytes: payload.totalBytes
+                totalBytes: payload.totalBytes,
+                openaiBaseUrl: payload.settings.openaiBaseUrl ?? '',
+                apiKeyConfigured: Boolean(payload.settings.apiKeyConfigured),
+                apiKeyHint: payload.settings.apiKeyHint ?? '',
+                apiKeyFromEnv: Boolean(payload.settings.apiKeyFromEnv)
             });
             setDraftDir(payload.settings.outputDir);
             setRetentionDraft(String(payload.settings.trashRetentionDays));
+            setBaseUrlDraft(payload.settings.openaiBaseUrl ?? '');
             setError(null);
         } catch (loadError) {
             setError(loadError instanceof Error ? loadError.message : String(loadError));
         }
-    }, [passwordHash]);
+    }, [t]);
 
     const saveDirectory = React.useCallback(async () => {
         if (!draftDir.trim() || draftDir.trim() === server?.outputDir) return;
-        setBusy(true);
+        setSavingDir(true);
         try {
             const response = await fetch('/api/settings', {
                 method: 'PUT',
@@ -112,14 +133,14 @@ export function SettingsButton({
             setError(message);
             onNotify(message, 'error');
         } finally {
-            setBusy(false);
+            setSavingDir(false);
         }
     }, [draftDir, load, moveExisting, onNotify, passwordHash, server?.outputDir, t]);
 
     const saveRetention = React.useCallback(async () => {
         const value = Number(retentionDraft);
         if (!Number.isFinite(value) || value < 1 || value > 3650 || value === server?.trashRetentionDays) return;
-        setBusy(true);
+        setSavingRetention(true);
         try {
             const response = await fetch('/api/settings', {
                 method: 'PUT',
@@ -138,29 +159,40 @@ export function SettingsButton({
             setError(message);
             onNotify(message, 'error');
         } finally {
-            setBusy(false);
+            setSavingRetention(false);
         }
     }, [load, onNotify, passwordHash, retentionDraft, server?.trashRetentionDays, t]);
 
+    const retentionValue = Number(retentionDraft);
+    // Makes an out-of-range number visible instead of letting "Apply" do nothing.
+    const retentionValid =
+        Number.isFinite(retentionValue) &&
+        retentionValue >= 1 &&
+        retentionValue <= 3650 &&
+        retentionValue !== server?.trashRetentionDays;
     const megabytes = server ? (server.totalBytes / 1024 / 1024).toFixed(1) : '0';
-    const [isShuttingDown, setIsShuttingDown] = React.useState(false);
 
     const shutdownServer = React.useCallback(async () => {
         if (!window.confirm(t('Stop the local server? The page stays open but stops working.'))) return;
         setIsShuttingDown(true);
         try {
-            await fetch('/api/shutdown', {
+            const response = await fetch('/api/shutdown', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(passwordHash ? { passwordHash } : {})
             });
+            // A rejection (wrong password, not localhost) used to be reported as a successful stop.
+            if (!response.ok) {
+                const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+                onNotify(payload?.error ?? t('Could not stop the server.'), 'error');
+                setIsShuttingDown(false);
+                return;
+            }
         } catch {
             // The server usually dies before the response is read — that is the expected outcome.
         }
         onNotify(t('Server stopped. You can close this page now.'), 'info');
     }, [onNotify, passwordHash, t]);
-    const [passwordDraft, setPasswordDraft] = React.useState('');
-    const [savingPassword, setSavingPassword] = React.useState(false);
 
     const savePassword = React.useCallback(async () => {
         if (!onPasswordChange) return;
@@ -184,6 +216,67 @@ export function SettingsButton({
         }
     }, [onNotify, onPasswordChange, passwordDraft, t]);
 
+    /** True when there is something new to store: a typed key, or an edited endpoint. */
+    const apiDirty =
+        apiKeyDraft.trim().length > 0 ||
+        (server ? baseUrlDraft.trim().replace(/\/+$/, '') !== server.openaiBaseUrl : false);
+
+    /**
+     * Saves the key and the endpoint the app talks to.
+     *
+     * This is the whole point of the panel: the project ships without credentials, and every user
+     * pastes their own. The pair is written to `.playground-settings.json` on the server — never to
+     * the browser — and the key is only ever sent when the user actually typed one.
+     */
+    const saveApi = React.useCallback(async () => {
+        if (!apiDirty) return;
+        setSavingApi(true);
+        try {
+            const response = await fetch('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    openaiBaseUrl: baseUrlDraft.trim(),
+                    ...(apiKeyDraft.trim() ? { openaiApiKey: apiKeyDraft.trim() } : {}),
+                    ...(passwordHash ? { passwordHash } : {})
+                })
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+            setApiKeyDraft('');
+            onNotify(t('API settings saved.'), 'success');
+            await load();
+        } catch (saveError) {
+            const message = saveError instanceof Error ? saveError.message : String(saveError);
+            setError(message);
+            onNotify(message, 'error');
+        } finally {
+            setSavingApi(false);
+        }
+    }, [apiDirty, apiKeyDraft, baseUrlDraft, load, onNotify, passwordHash, t]);
+
+    const clearApiKey = React.useCallback(async () => {
+        setSavingApi(true);
+        try {
+            const response = await fetch('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ openaiApiKey: '', ...(passwordHash ? { passwordHash } : {}) })
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+            setApiKeyDraft('');
+            onNotify(t('Saved API key removed.'), 'success');
+            await load();
+        } catch (saveError) {
+            const message = saveError instanceof Error ? saveError.message : String(saveError);
+            setError(message);
+            onNotify(message, 'error');
+        } finally {
+            setSavingApi(false);
+        }
+    }, [load, onNotify, passwordHash, t]);
+
     return (
         <>
             <Button
@@ -192,6 +285,7 @@ export function SettingsButton({
                 size='sm'
                 onClick={() => {
                     setOpen(true);
+                    setError(null);
                     void load();
                 }}
                 className={`border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900 ${
@@ -236,10 +330,10 @@ export function SettingsButton({
                                 <Button
                                     type='button'
                                     size='sm'
-                                    disabled={busy || !draftDir.trim() || draftDir.trim() === server?.outputDir}
+                                    disabled={savingDir || !draftDir.trim() || draftDir.trim() === server?.outputDir}
                                     onClick={saveDirectory}
                                     className='bg-indigo-600 text-white hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
-                                    {busy ? t('Saving…') : t('Apply')}
+                                    {savingDir ? t('Saving…') : t('Apply')}
                                 </Button>
                             </div>
                         </div>
@@ -285,13 +379,88 @@ export function SettingsButton({
                                 <Button
                                     type='button'
                                     size='sm'
-                                    disabled={busy}
+                                    disabled={savingRetention || !retentionValid}
                                     onClick={() => void saveRetention()}
                                     className='bg-indigo-600 text-white hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
-                                    {busy ? t('Saving…') : t('Apply')}
+                                    {savingRetention ? t('Saving…') : t('Apply')}
                                 </Button>
                             </div>
                         </div>
+                    </section>
+
+                    <section className='space-y-3 border-t border-slate-100 pt-4'>
+                        <div className='flex items-center gap-2'>
+                            <KeyRound className='h-4 w-4 text-slate-400' />
+                            <h3 className='text-[13px] font-semibold text-slate-800'>{t('API')}</h3>
+                            {server?.apiKeyConfigured && (
+                                <span className='ml-auto rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700'>
+                                    {t('Key saved {hint}', { hint: server.apiKeyHint })}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className='space-y-1.5'>
+                            <Label htmlFor='settings-base-url' className='text-[12px] text-slate-600'>
+                                {t('API base URL')}
+                            </Label>
+                            <Input
+                                id='settings-base-url'
+                                value={baseUrlDraft}
+                                onChange={(event) => setBaseUrlDraft(event.target.value)}
+                                placeholder='https://cf.api.fan/v1'
+                                className='border-slate-200 bg-white text-[13px]'
+                            />
+                            <p className='text-[11px] text-slate-400'>
+                                {t('PackyAPI (or any OpenAI-compatible relay). Leave empty for the official API.')}
+                            </p>
+                        </div>
+
+                        <div className='space-y-1.5'>
+                            <Label htmlFor='settings-api-key' className='text-[12px] text-slate-600'>
+                                {t('API key')}
+                            </Label>
+                            <div className='flex gap-2'>
+                                <Input
+                                    id='settings-api-key'
+                                    type='password'
+                                    autoComplete='off'
+                                    value={apiKeyDraft}
+                                    onChange={(event) => setApiKeyDraft(event.target.value)}
+                                    placeholder={
+                                        server?.apiKeyConfigured
+                                            ? t('Type a new key to replace the saved one')
+                                            : t('Paste the key from your provider')
+                                    }
+                                    className='border-slate-200 bg-white text-[13px]'
+                                />
+                                <Button
+                                    type='button'
+                                    size='sm'
+                                    disabled={savingApi || !apiDirty}
+                                    onClick={() => void saveApi()}
+                                    className='bg-indigo-600 text-white hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
+                                    {savingApi ? t('Saving…') : t('Apply')}
+                                </Button>
+                            </div>
+                        </div>
+
+                        <p className='text-[11px] text-slate-400'>
+                            {t('Stored on this machine in .playground-settings.json, which is gitignored — the key never reaches the browser again and is never committed.')}
+                        </p>
+                        {server?.apiKeyFromEnv && (
+                            <p className='text-[11px] text-amber-600'>
+                                {t('No key saved here yet — the server is currently using OPENAI_API_KEY from .env.local.')}
+                            </p>
+                        )}
+                        {server?.apiKeyConfigured && !server.apiKeyFromEnv && (
+                            <button
+                                type='button'
+                                onClick={() => void clearApiKey()}
+                                disabled={savingApi}
+                                className='text-[11px] text-slate-400 underline-offset-2 hover:text-red-600 hover:underline disabled:opacity-50'>
+                                {t('Remove the saved key')}
+                            </button>
+                        )}
                     </section>
 
                     <section className='space-y-3 border-t border-slate-100 pt-4'>
@@ -315,42 +484,50 @@ export function SettingsButton({
                                     ))}
                                 </select>
                             </div>
-                            <div className='space-y-1.5'>
-                                <Label htmlFor='settings-size' className='text-[12px] text-slate-600'>
-                                    {t('Size')}
-                                </Label>
-                                <select
-                                    id='settings-size'
-                                    value={defaults.size}
-                                    onChange={(event) =>
-                                        onDefaultsChange({ ...defaults, size: event.target.value as SizePreset })
-                                    }
-                                    className='h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800'>
-                                    {SIZE_CHOICES.map((size) => (
-                                        <option key={size} value={size}>
-                                            {t(size.charAt(0).toUpperCase() + size.slice(1))}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className='space-y-1.5'>
-                                <Label htmlFor='settings-quality' className='text-[12px] text-slate-600'>
-                                    {t('Quality')}
-                                </Label>
-                                <select
-                                    id='settings-quality'
-                                    value={defaults.quality}
-                                    onChange={(event) =>
-                                        onDefaultsChange({ ...defaults, quality: event.target.value as ImageQuality })
-                                    }
-                                    className='h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800'>
-                                    {QUALITY_CHOICES.map((quality) => (
-                                        <option key={quality} value={quality}>
-                                            {t(quality.charAt(0).toUpperCase() + quality.slice(1))}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                            <>
+                                <div className='space-y-1.5'>
+                                        <Label htmlFor='settings-size' className='text-[12px] text-slate-600'>
+                                            {t('Size')}
+                                        </Label>
+                                        <select
+                                            id='settings-size'
+                                            value={defaults.size}
+                                            onChange={(event) =>
+                                                onDefaultsChange({
+                                                    ...defaults,
+                                                    size: event.target.value as SizePreset
+                                                })
+                                            }
+                                            className='h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800'>
+                                            {SIZE_CHOICES.map((size) => (
+                                                <option key={size} value={size}>
+                                                    {t(size.charAt(0).toUpperCase() + size.slice(1))}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className='space-y-1.5'>
+                                        <Label htmlFor='settings-quality' className='text-[12px] text-slate-600'>
+                                            {t('Quality')}
+                                        </Label>
+                                        <select
+                                            id='settings-quality'
+                                            value={defaults.quality}
+                                            onChange={(event) =>
+                                                onDefaultsChange({
+                                                    ...defaults,
+                                                    quality: event.target.value as ImageQuality
+                                                })
+                                            }
+                                            className='h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800'>
+                                            {QUALITY_CHOICES.map((quality) => (
+                                                <option key={quality} value={quality}>
+                                                    {t(quality.charAt(0).toUpperCase() + quality.slice(1))}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                            </>
                         </div>
                         <p className='text-[11px] text-slate-400'>
                             {t('These apply to nodes you create from now on; existing nodes keep their own settings.')}

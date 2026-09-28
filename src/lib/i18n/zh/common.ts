@@ -12,8 +12,21 @@ export const common: Record<string, string> = {
     'Close': '关闭',
     'Shut Down Service': '关闭服务',
     'Stopping…': '正在关闭…',
-    'Stop the local server? This page will stop working until you start it again.':
-        '确定要关闭本地服务吗？关闭后此页面将无法使用，需要重新启动服务才能恢复。',
     'Server stopped. You can close this page now.': '服务已关闭，现在可以关闭此页面了。',
-    'Failed to stop the server.': '关闭服务失败，请在终端手动停止。'
+
+    // Quality and background values, reached through `t(capitalise(value))` — see check-i18n.mjs's
+    // DYNAMIC_KEYS. They were whitelisted as "used" but never actually translated, so a Chinese UI
+    // showed "high"/"transparent" verbatim.
+    'Auto': '自动',
+    'Low': '低',
+    'Medium': '中',
+    'High': '高',
+    'XHigh': '超高',
+    'Max': '最高',
+    'Opaque': '不透明',
+    'Transparent': '透明',
+    'Request failed with status {status}': '请求失败（HTTP {status}）',
+    'This view failed to render.': '这个视图渲染失败了。',
+    'Try again': '重试',
+    'Could not stop the server.': '无法停止服务。'
 };

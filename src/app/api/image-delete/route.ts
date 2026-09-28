@@ -11,12 +11,21 @@ import path from 'path';
 
 type DeleteRequestBody = {
     filenames: string[];
+    /**
+     * `true` unlinks the files instead of moving them to `.trash/<date>/`.
+     *
+     * Only the recycle bin's "remove for good" uses it: every other path in the app deliberately
+     * keeps a deleted picture recoverable for the retention window. Permanent deletion is what stops
+     * a user who has decided a picture is worthless from leaving it on disk forever.
+     */
+    permanent?: boolean;
     passwordHash?: string;
 };
 
 type FileDeletionResult = {
     filename: string;
     success: boolean;
+    bytes?: number;
     error?: string;
 };
 
@@ -41,7 +50,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid request body: Must be JSON.' }, { status: 400 });
     }
 
-    const { filenames } = requestBody;
+    const { filenames, permanent } = requestBody;
 
     if (!Array.isArray(filenames) || filenames.some((fn) => typeof fn !== 'string')) {
         return NextResponse.json({ error: 'Invalid filenames: Must be an array of strings.' }, { status: 400 });
@@ -53,6 +62,8 @@ export async function POST(request: NextRequest) {
 
     const outputDir = await getOutputDir();
     const deletionResults: FileDeletionResult[] = [];
+
+    let freedBytes = 0;
 
     for (const filename of filenames) {
         // `index.json` is the registry and `.trash` holds recoverable deletions: neither is a picture.
@@ -72,9 +83,21 @@ export async function POST(request: NextRequest) {
         const filepath = path.join(outputDir, filename);
 
         try {
-            const { trashedTo } = await trashImage(filename);
-            console.log(`Moved image to the trash: ${trashedTo}`);
-            deletionResults.push({ filename, success: true });
+            const size = await fs
+                .stat(filepath)
+                .then((stat) => stat.size)
+                .catch(() => 0);
+
+            if (permanent) {
+                // Unlink, not trash: the caller has already told the user this cannot be undone.
+                await fs.rm(filepath, { force: true });
+                console.log(`Permanently deleted image: ${filename}`);
+            } else {
+                const { trashedTo } = await trashImage(filename);
+                console.log(`Moved image to the trash: ${trashedTo}`);
+            }
+            freedBytes += size;
+            deletionResults.push({ filename, success: true, bytes: size });
         } catch (error: unknown) {
             console.error(`Error deleting image ${filepath}:`, error);
             if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
@@ -96,6 +119,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
         {
             message: allSucceeded ? 'All files deleted successfully.' : 'Some files could not be deleted.',
+            permanent: permanent === true,
+            freedBytes,
             results: deletionResults
         },
         { status: allSucceeded ? 200 : 207 } // 207 Multi-Status if some failed

@@ -1,12 +1,23 @@
+import { checkPassword, readAuthCookie } from '@/lib/api-auth';
 import { getOutputDir } from '@/lib/server-settings';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-/** Lists every picture in the output folder, so the history can be rebuilt from the disk alone. */
-export async function GET() {
+/**
+ * Lists every picture in the output folder, so the history can be rebuilt from the disk alone.
+ *
+ * Gated like the write endpoints: the list is the whole gallery's inventory, and it used to hand
+ * out the server's absolute output path along with it.
+ */
+export async function GET(request: NextRequest) {
+    const authFailure = checkPassword(readAuthCookie(request));
+    if (authFailure) {
+        return NextResponse.json({ error: authFailure.error }, { status: authFailure.status });
+    }
+
     const dir = await getOutputDir();
 
     let entries: string[] = [];
@@ -29,5 +40,6 @@ export async function GET() {
     }
 
     files.sort((a, b) => b.modifiedAt - a.modifiedAt);
-    return NextResponse.json({ ok: true, dir, files });
+    // The absolute output directory stays server-side: the client only needs the file list.
+    return NextResponse.json({ ok: true, files });
 }

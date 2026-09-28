@@ -17,10 +17,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-    title: 'GPT Image Playground',
-    description: "Generate and edit images using OpenAI's GPT Image models.",
+    title: 'NodePic · 画布式 AI 图像工坊',
+    description: 'NodePic：在无限画布上生成、编辑、串联图片的 AI 图像工坊。',
     icons: {
-        icon: '/favicon.svg'
+        icon: '/icon.png',
+        apple: '/logo.png'
     }
 };
 

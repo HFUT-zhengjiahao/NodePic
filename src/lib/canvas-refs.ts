@@ -2,28 +2,13 @@ import { loadAllCanvasNodes } from '@/lib/canvas-store';
 import type { CanvasTaskData } from '@/lib/canvas-types';
 import type { Edge, Node } from '@xyflow/react';
 
-/** localStorage keys shared by the canvas view and the pages that must reason about its files. */
-export const CANVAS_STORAGE_KEY = 'gptImageCanvas';
+/** localStorage key shared by the canvas view and the pages that must reason about its files. */
 export const CANVAS_HINT_KEY = 'gptImageCanvasHintDismissed';
-export const HISTORY_STORAGE_KEY = 'openaiImageHistory';
 
 export type StoredCanvas = {
     nodes?: Array<Node<CanvasTaskData>>;
     edges?: Edge[];
 };
-
-export function readStoredCanvas(): StoredCanvas | null {
-    if (typeof window === 'undefined') return null;
-    try {
-        const raw = window.localStorage.getItem(CANVAS_STORAGE_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw) as StoredCanvas;
-        return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (error) {
-        console.warn('Could not read the stored canvas snapshot:', error);
-        return null;
-    }
-}
 
 /**
  * Every image file the canvas still depends on: each node's own results plus the source pictures of
@@ -49,13 +34,25 @@ export function findCanvasReferences(filenames: string[]): string[] {
     return filenames.filter((filename) => referenced.has(filename));
 }
 
-/** How many canvas nodes depend on the given file. */
-export function countCanvasReferences(filename: string): number {
-    let count = 0;
+/**
+ * Reference counts for many files at once.
+ *
+ * Counting one file at a time re-read and re-parsed every canvas for every filename, so a
+ * 40-picture history entry meant 40 full passes over localStorage before its warning could be
+ * built. One pass now answers for all of them.
+ */
+export function countCanvasReferencesFor(filenames: readonly string[]): Map<string, number> {
+    const counts = new Map<string, number>(filenames.map((filename) => [filename, 0]));
     for (const node of loadAllCanvasNodes()) {
-        const usedAsSource = node.data?.sourceFilenames?.includes(filename);
-        const usedAsResult = node.data?.images?.some((image) => image.filename === filename);
-        if (usedAsSource || usedAsResult) count += 1;
+        const touched = new Set<string>();
+        node.data?.sourceFilenames?.forEach((filename) => {
+            if (filename && counts.has(filename)) touched.add(filename);
+        });
+        node.data?.images?.forEach((image) => {
+            if (image?.filename && counts.has(image.filename)) touched.add(image.filename);
+        });
+        // A node that both produced a file and uses it as a source still counts once.
+        for (const filename of touched) counts.set(filename, (counts.get(filename) ?? 0) + 1);
     }
-    return count;
+    return counts;
 }

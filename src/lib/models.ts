@@ -1,6 +1,7 @@
 /** Models that can be selected for new generations and edits, in display order. */
 export const GPT_IMAGE_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2'] as const;
 export type GptImageModel = (typeof GPT_IMAGE_MODELS)[number];
+
 /**
  * Model a brand new form / canvas node starts with.
  *
@@ -29,6 +30,7 @@ export const EXTENDED_QUALITIES: readonly ImageQuality[] = ['xhigh', 'max'];
  * This deployment talks to PackyAPI (https://cf.api.fan), whose validation accepts only
  * low/medium/high/auto for every gpt-image model — no model advertises the extended tiers here.
  * Pointing this at OpenAI directly means adding 'xhigh'/'max' to the gpt-image-2.5 entries.
+ *
  */
 const MODEL_QUALITY_TIERS: Record<GptImageModel, readonly ImageQuality[]> = {
     'gpt-image-2.5-flare': BASE_QUALITIES,
@@ -50,5 +52,5 @@ export const IMAGE_OUTPUT_FORMATS = ['png', 'jpeg', 'webp'] as const;
 export type ImageOutputFormat = (typeof IMAGE_OUTPUT_FORMATS)[number];
 export type ImageModeration = 'auto' | 'low';
 
-/** Maximum source images per edit request for GPT Image models. */
-export const MAX_EDIT_IMAGES = 16;
+// The edit limit lives in `src/lib/canvas-types.ts` as MAX_EDIT_SOURCES, which is also the one the
+// environment variable can override — a second constant here was easy to reach for by mistake.

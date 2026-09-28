@@ -24,7 +24,13 @@ function walk(dir) {
 
 const unescapeLiteral = (value) => value.replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 
-/** Every `t('…')` / `t("…")` literal in the app (the literal itself is always on one line). */
+/**
+ * Every `t('…')` / `tRef.current('…')` literal in the app (the literal itself is always on one line).
+ *
+ * Effects that must not re-run when the language changes read the translator from a ref, so their
+ * strings are reached as `tRef.current('…')` — matching only `t(` reported them as "defined but
+ * unused" and, worse, would not have caught a missing translation in one of them.
+ */
 function collectUsedKeys() {
     const used = new Map();
     for (const file of walk(srcDir)) {
@@ -32,7 +38,7 @@ function collectUsedKeys() {
         const content = readFileSync(file, 'utf8');
         // Whitespace (including newlines) may sit between `t(` and its literal, so scan the whole
         // file rather than line by line.
-        for (const match of content.matchAll(/\bt\(\s*(['"])((?:\\.|(?!\1)[^\\])*?)\1/g)) {
+        for (const match of content.matchAll(/\b(?:t|tRef\.current)\(\s*(['"])((?:\\.|(?!\1)[^\\])*?)\1/g)) {
             const key = unescapeLiteral(match[2]);
             if (!used.has(key)) {
                 const line = content.slice(0, match.index).split('\n').length;

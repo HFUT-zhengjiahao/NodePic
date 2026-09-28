@@ -87,12 +87,42 @@ export const canvas: Record<string, string> = {
     'Canvas {index}': '画布 {index}',
     'Created “{name}”.': '已新建「{name}」。',
     'Duplicated “{name}”.': '已复制「{name}」。',
-    'Deleted “{name}”.': '已删除「{name}」。',
-    'Delete the canvas “{name}”? Its pictures stay on disk.': '确定删除画布「{name}」吗？它的图片文件会保留在磁盘上。',
     'copy': '副本',
     'Rename': '重命名',
     'Duplicate': '复制',
     'Delete canvas': '删除画布',
+    'This is the only canvas — it cannot be deleted.': '这是唯一一块画布，不能删除。',
+    'Move “{name}” to the recycle bin? Its pictures stay on disk, and you can restore it later.':
+        '确定把「{name}」移入回收站吗？图片会保留在磁盘上，之后可以恢复。',
+    'Move to the recycle bin': '移入回收站',
+    'Moved “{name}” to the recycle bin.': '已把「{name}」移入回收站。',
+    'Restored “{name}”.': '已恢复「{name}」。',
+    'Recycle bin': '回收站',
+    'Restore': '恢复',
+    'Deleted at {when}': '删除于 {when}',
+    '{count} picture(s)': '{count} 张图片',
+    'No pictures': '没有图片',
+    'Delete canvas for good': '彻底删除画布',
+    'Delete for good': '彻底删除',
+    'Delete this canvas and its pictures for good': '彻底删除这块画布和它独占的图片文件',
+    'Empty the recycle bin': '清空回收站',
+    'The recycle bin is empty': '回收站是空的',
+    'Deleting a canvas from the sidebar puts it here first, so you can restore it or remove it — pictures and all — later.':
+        '从侧栏删除的画布会先放到这里，之后你可以恢复它，或者连图片一起彻底删掉。',
+    'Deleted canvases wait here. Removing one for good also deletes the pictures only it uses.':
+        '删除的画布会先留在这里。彻底删除时，只有它独占的图片文件会跟着一起删掉。',
+    'Delete “{name}” for good? {count} picture file(s) that only this canvas uses will be removed from the disk, together with their history entries. This cannot be undone.':
+        '彻底删除「{name}」吗？只有它用到的 {count} 张图片会从磁盘上删除，对应的历史记录也会一并移除，且无法恢复。',
+    'Delete “{name}” for good? Its pictures are still used by another canvas, so only the canvas itself is removed.':
+        '彻底删除「{name}」吗？它的图片仍被其他画布使用，因此只删除画布本身。',
+    'Empty the recycle bin? {count} canvas(es) will be removed for good, along with {files} picture file(s) only they use. This cannot be undone.':
+        '清空回收站吗？{count} 块画布将被彻底删除，其中只有它们用到的 {files} 张图片会一并从磁盘删除，且无法恢复。',
+    'Empty the recycle bin? {count} canvas(es) will be removed for good.':
+        '清空回收站吗？{count} 块画布将被彻底删除。',
+    'Removed {count} canvas(es) for good and deleted {files} picture file(s) from disk, freeing {size} MB.':
+        '已彻底删除 {count} 块画布，并从磁盘移除 {files} 张图片，释放 {size} MB。',
+    'Removed {count} canvas(es) for good. Their pictures are still used elsewhere, so no file was deleted.':
+        '已彻底删除 {count} 块画布。它们的图片仍被其他地方使用，因此没有删除任何文件。',
     '{count} nodes': '{count} 个节点',
     'Ctrl+V pastes a picture into a new node': 'Ctrl+V 可粘贴图片建节点',
     'Pasted {count} picture(s) into new node(s).': '已把粘贴的 {count} 张图片建成节点。',
@@ -119,6 +149,20 @@ export const canvas: Record<string, string> = {
     'These apply to nodes you create from now on; existing nodes keep their own settings.':
         '只影响之后新建的节点，已有节点保持原参数。',
     'Access password': '访问密码',
+    'API': 'API 接口',
+    'API base URL': 'API 接口地址',
+    'PackyAPI (or any OpenAI-compatible relay). Leave empty for the official API.': 'PackyAPI（或任何兼容 OpenAI 的中转）；留空则使用官方接口。',
+    'API key': 'API 密钥',
+    'Paste the key from your provider': '粘贴你的服务商密钥',
+    'Type a new key to replace the saved one': '留空则保持已保存的密钥',
+    'Key saved {hint}': '密钥已保存 {hint}',
+    'Stored on this machine in .playground-settings.json, which is gitignored — the key never reaches the browser again and is never committed.':
+        '保存在本机 .playground-settings.json（已被 gitignore 忽略）：密钥不会再回传到浏览器，也不会进仓库。',
+    'No key saved here yet — the server is currently using OPENAI_API_KEY from .env.local.':
+        '这里还没有保存密钥，服务端目前使用 .env.local 里的 OPENAI_API_KEY。',
+    'Remove the saved key': '删除已保存的密钥',
+    'API settings saved.': 'API 设置已保存。',
+    'Saved API key removed.': '已删除保存的 API 密钥。',
     'A password is stored in this browser and sent with every request.': '密码已保存在本浏览器，会随每次请求发送。',
     'No password is stored. Only needed when the server sets APP_PASSWORD.':
         '当前未保存密码。仅当服务端设置了 APP_PASSWORD 时才需要。',
@@ -128,9 +172,15 @@ export const canvas: Record<string, string> = {
     'Access password cleared.': '已清除访问密码。',
     'Access password saved in this browser.': '访问密码已保存在本浏览器。',
     'Moved {count} file(s) to the trash.': '已把 {count} 个文件移入回收站。',
-    'Are you sure you want to clear the entire image history? This only removes the records — the picture files stay on disk.':
+    'Clear history': '清空历史记录',
+    'Clear the entire image history? This only removes the records — the picture files stay on disk.':
         '确定清空全部历史记录吗？这里只清记录，图片文件会留在磁盘上。',
+    'The history is already empty.': '历史记录本来就是空的。',
     'History cleared.': '历史记录已清空。',
+    'The browser’s storage is full — the last change was not saved. Export anything you need, then delete old canvases for good.':
+        '浏览器存储已满 —— 这次改动没有保存成功。请先导出需要的内容，再彻底删除旧画布。',
+    'The browser refused to save — the last change may be lost when you reload.':
+        '浏览器拒绝写入 —— 刷新后这次改动可能会丢失。',
     'Deleted files are moved to the trash folder and kept for {days} days.': '删除的文件会先移入回收站，保留 {days} 天。',
     '{count} pictures · ${cost}': '共 {count} 张图 · ${cost}',
     'Search prompts…': '搜索提示词…',
@@ -156,6 +206,13 @@ export const canvas: Record<string, string> = {
     'Brush Size: {size}px': '画笔大小：{size}px',
     'Upload Mask': '上传蒙版',
     'Save Mask': '保存蒙版',
+    'Save changes': '保存修改',
+    'Tool': '工具',
+    'Brush': '画笔',
+    'Eraser': '橡皮',
+    'Unsaved changes — press Save to apply them.': '有未保存的修改，点「保存修改」后生效。',
+    'This picture already has a mask — it is loaded below, ready to be extended or erased.':
+        '这张源图已有蒙版，已在下方载入，可以继续涂抹或擦除。',
     'Generated Mask Preview:': '蒙版预览：',
     'Generating mask preview...': '正在生成蒙版预览…',
     'History': '历史记录',
@@ -195,7 +252,6 @@ export const canvas: Record<string, string> = {
     'Zoom to 100%': '缩放到 100%',
     'Connect or pick a source image before running an edit node.': '请先连接或选择一张源图，再运行编辑节点。',
     'Empty canvas': '空画布',
-    'Open': '当前',
     'Show the sidebar': '展开侧栏',
     'Hide the sidebar': '收起侧栏',
     'Stop the local server? The page stays open but stops working.': '确定关闭本地服务吗？页面会保留但功能失效。',
@@ -203,12 +259,15 @@ export const canvas: Record<string, string> = {
     'Stopping the server leaves the canvas and pictures untouched; start it again with the desktop shortcut.':
         '关闭服务不会影响画布和图片，用桌面快捷方式可以重新启动。',
     'Server': '服务',
-    'Save and replace mask': '保存并替换蒙版',
-    'This is the mask currently applied to the node. Painting replaces it entirely — use Clear to drop it.':
-        '这是当前已应用的蒙版。重新涂抹会整体替换它；只想去掉蒙版请点「清空」。',
-    'Saving now replaces the whole mask with the strokes you just painted.': '保存会用刚画的笔画整体替换原蒙版。',
-    'A mask is already attached to this node — it is shown below; painting replaces it.':
-        '该节点已有蒙版，下方即为当前蒙版；重新涂抹会替换它。',
+    'Masks are stored in this browser only — a canvas export does not carry them.':
+        '蒙版只保存在本机浏览器里，画布导出文件不包含蒙版。',
+    'This node already has a run in flight — wait for it to finish.':
+        '这个节点还有一次生成正在收尾，等它结束再试。',
+    'Still loading the stored masks — try again in a moment.': '正在读取已保存的蒙版，请稍后再试。',
+    'Cancelled {count} queued run(s) — they never reached the model.':
+        '已取消 {count} 个排队中的任务，它们没有发给模型。',
+    'Cancelled {queued} queued run(s). {running} run(s) were already generating: their pictures will still be saved to the history.':
+        '已取消 {queued} 个排队中的任务；另有 {running} 个任务已经在生成，出图后仍会存进历史记录。',
     'Rebuild from disk': '按磁盘重建',
     'Re-create entries for pictures that are on disk but missing from this list':
         '为磁盘上存在、但列表里缺失的图片补建记录',
@@ -216,5 +275,9 @@ export const canvas: Record<string, string> = {
     'Recovered {count} picture(s) from disk.': '已从磁盘恢复 {count} 张图片的记录。',
     'Recovered': '已恢复',
     'Confirm': '确定',
-    'An unexpected error occurred.': '出错了，请重试。'
+    'An unexpected error occurred.': '出错了，请重试。',
+    'Could not save the mask. The node will run without it.': '蒙版保存失败，该节点将在无蒙版状态下运行。',
+    'Mask drawing area — paint over the parts you want to edit': '蒙版绘制区 —— 涂抹你想编辑的部分',
+    'Brush size in pixels': '画笔大小（像素）',
+    'Copy failed': '复制失败'
 };

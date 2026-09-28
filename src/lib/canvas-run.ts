@@ -1,5 +1,6 @@
 import type { CanvasTaskParams, CanvasTaskImage } from '@/lib/canvas-types';
 import type { ApiUsage } from '@/lib/cost-utils';
+import { imageUrl } from '@/lib/image-url';
 import { getPresetDimensions } from '@/lib/size-utils';
 
 export type RunCanvasTaskInput = {
@@ -25,7 +26,7 @@ function buildSize(params: CanvasTaskParams): string {
 }
 
 async function fetchAsFile(filename: string): Promise<File> {
-    const response = await fetch(`/api/image/${encodeURIComponent(filename)}`);
+    const response = await fetch(imageUrl(filename));
     if (!response.ok) {
         throw new Error(`Failed to load source image ${filename} (HTTP ${response.status}).`);
     }
@@ -83,7 +84,7 @@ export async function runCanvasTask(input: RunCanvasTaskInput): Promise<RunCanva
     return {
         images: result.images.map((image: { filename: string }) => ({
             filename: image.filename,
-            path: `/api/image/${image.filename}`
+            path: imageUrl(image.filename)
         })),
         usage: result.usage ?? null
     };

@@ -7,6 +7,19 @@ export type ServerSettings = {
     outputDir: string;
     /** How many days a deleted picture stays in the trash before it is purged. */
     trashRetentionDays: number;
+    /**
+     * The user's own provider key, typed into the settings panel.
+     *
+     * This is what makes the project usable by anyone who clones it: the key lives in
+     * `.playground-settings.json`, which is gitignored, instead of being baked into the source. An
+     * empty value falls back to `OPENAI_API_KEY`, so an existing `.env.local` setup keeps working.
+     */
+    openaiApiKey: string;
+    /**
+     * Endpoint that key belongs to — a relay such as PackyAPI (`https://cf.api.fan/v1`), or the
+     * official API when left empty.
+     */
+    openaiBaseUrl: string;
 };
 
 export const DEFAULT_OUTPUT_DIR_NAME = 'generated-images';
@@ -16,36 +29,72 @@ const settingsFile = path.join(projectRoot, '.playground-settings.json');
 
 const DEFAULTS: ServerSettings = {
     outputDir: DEFAULT_OUTPUT_DIR_NAME,
-    trashRetentionDays: 30
+    trashRetentionDays: 30,
+    openaiApiKey: '',
+    openaiBaseUrl: ''
 };
 
 let cached: ServerSettings | null = null;
+/** mtime of the file `cached` was read from, so a hand edit outside the app is picked up. */
+let cachedMtimeMs = 0;
 
 /** Absolute path of the folder pictures live in. */
 export function resolveOutputDir(dir: string): string {
     return path.isAbsolute(dir) ? dir : path.join(projectRoot, dir);
 }
 
+/** Trailing slashes would turn `/v1` into `/v1//images/generations` in the SDK's URL joining. */
+function normalizeBaseUrl(value: unknown): string {
+    return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : '';
+}
+
+/**
+ * The key that will actually be used: the one saved in the panel, otherwise the environment.
+ *
+ * Exported because both the settings panel (to report whether a key is configured) and the image
+ * route (to call the provider) have to answer that question the same way.
+ */
+export function effectiveApiKey(settings: ServerSettings): string {
+    return settings.openaiApiKey.trim() || process.env.OPENAI_API_KEY?.trim() || '';
+}
+
+/** The endpoint that key belongs to, or undefined to let the SDK use its own default. */
+export function effectiveBaseUrl(settings: ServerSettings): string | undefined {
+    return normalizeBaseUrl(settings.openaiBaseUrl) || process.env.OPENAI_API_BASE_URL?.trim() || undefined;
+}
+
+function parseSettings(raw: string): ServerSettings {
+    const parsed = JSON.parse(raw) as Partial<ServerSettings>;
+    return {
+        outputDir:
+            typeof parsed.outputDir === 'string' && parsed.outputDir.trim() ? parsed.outputDir : DEFAULTS.outputDir,
+        trashRetentionDays:
+            typeof parsed.trashRetentionDays === 'number' && parsed.trashRetentionDays > 0
+                ? Math.floor(parsed.trashRetentionDays)
+                : DEFAULTS.trashRetentionDays,
+        openaiApiKey: typeof parsed.openaiApiKey === 'string' ? parsed.openaiApiKey.trim() : DEFAULTS.openaiApiKey,
+        openaiBaseUrl: normalizeBaseUrl(parsed.openaiBaseUrl)
+    };
+}
+
 export async function readServerSettings(): Promise<ServerSettings> {
-    if (cached) return cached;
+    // One stat per call keeps the cache honest: editing .playground-settings.json by hand (or a
+    // restore from backup) used to be ignored until the server was restarted.
     try {
-        const raw = await fs.readFile(settingsFile, 'utf8');
-        const parsed = JSON.parse(raw) as Partial<ServerSettings>;
-        cached = {
-            outputDir: typeof parsed.outputDir === 'string' && parsed.outputDir.trim() ? parsed.outputDir : DEFAULTS.outputDir,
-            trashRetentionDays:
-                typeof parsed.trashRetentionDays === 'number' && parsed.trashRetentionDays > 0
-                    ? Math.floor(parsed.trashRetentionDays)
-                    : DEFAULTS.trashRetentionDays
-        };
+        const stat = await fs.stat(settingsFile);
+        if (cached && stat.mtimeMs === cachedMtimeMs) return cached;
+        cached = parseSettings(await fs.readFile(settingsFile, 'utf8'));
+        cachedMtimeMs = stat.mtimeMs;
+        return cached;
     } catch (error) {
         const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null;
         if (code !== 'ENOENT') {
             console.warn('Could not read .playground-settings.json — using defaults:', error);
         }
         cached = { ...DEFAULTS };
+        cachedMtimeMs = 0;
+        return cached;
     }
-    return cached;
 }
 
 export async function writeServerSettings(patch: Partial<ServerSettings>): Promise<ServerSettings> {
@@ -56,10 +105,17 @@ export async function writeServerSettings(patch: Partial<ServerSettings>): Promi
         trashRetentionDays:
             typeof patch.trashRetentionDays === 'number' && patch.trashRetentionDays > 0
                 ? Math.floor(patch.trashRetentionDays)
-                : current.trashRetentionDays
+                : current.trashRetentionDays,
+        // An empty string is meaningful here ("forget the key"), so it is not treated as "unchanged"
+        // the way an empty folder path is.
+        openaiApiKey: typeof patch.openaiApiKey === 'string' ? patch.openaiApiKey.trim() : current.openaiApiKey,
+        openaiBaseUrl:
+            typeof patch.openaiBaseUrl === 'string' ? normalizeBaseUrl(patch.openaiBaseUrl) : current.openaiBaseUrl
     };
     await fs.writeFile(settingsFile, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+    const stat = await fs.stat(settingsFile).catch(() => null);
     cached = next;
+    cachedMtimeMs = stat?.mtimeMs ?? 0;
     return next;
 }
 

@@ -2,11 +2,13 @@
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import type { CanvasTaskData, CanvasTaskParams } from '@/lib/canvas-types';
+import { HANDLE_IN, HANDLE_OUT } from '@/lib/canvas-lineage';
+import type { CanvasTaskData, CanvasTaskImage, CanvasTaskNode, CanvasTaskParams } from '@/lib/canvas-types';
 import { useI18n } from '@/lib/i18n';
+import { imageUrl } from '@/lib/image-url';
 import { GPT_IMAGE_MODELS, type GptImageModel } from '@/lib/models';
 import { getPresetDimensions, type SizePreset } from '@/lib/size-utils';
-import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
 import {
     Brush,
     ChevronDown,
@@ -26,7 +28,8 @@ import {
 import Image from 'next/image';
 import * as React from 'react';
 
-export type TaskNodeType = Node<CanvasTaskData, 'task'>;
+/** The node this component renders. The shape itself is defined once, in canvas-types.ts. */
+export type TaskNodeType = CanvasTaskNode;
 
 export type TaskNodeActions = {
     onPatch: (id: string, patch: Partial<CanvasTaskData>) => void;
@@ -60,8 +63,169 @@ export function useTaskNodeActions(): TaskNodeActions {
     return actions;
 }
 
+/**
+ * The picture a node produced — or the reason there is none.
+ *
+ * Shared by both card shapes: a collapsed node is mostly this picture, and an open one shows the same
+ * thing above its prompt. Keeping one implementation is what stops the two from disagreeing about,
+ * say, what a missing source looks like.
+ */
+function NodePreview({
+    id,
+    data,
+    imageIndex,
+    visibleImage,
+    firstImage,
+    heightClass,
+    imageFit,
+    showOverlayActions,
+    className = ''
+}: {
+    id: string;
+    data: CanvasTaskData;
+    imageIndex: number;
+    visibleImage?: CanvasTaskImage;
+    firstImage?: CanvasTaskImage;
+    /** Tailwind height class — the two shapes differ only in how much room the picture gets. */
+    heightClass: string;
+    /** `cover` fills the frame like a photo; `contain` shows the whole picture with its background. */
+    imageFit: 'contain' | 'cover';
+    /** Extra classes for the frame this sits in — a collapsed card rounds the preview's own corners. */
+    className?: string;
+    /** The open card floats expand/download over the picture; the chip leaves that to its action row. */
+    showOverlayActions: boolean;
+}) {
+    const { t } = useI18n();
+    const actions = useTaskNodeActions();
+    const isRunning = data.status === 'running';
+    const isQueued = data.status === 'queued';
+    const hasImage = !!visibleImage && !data.resultMissing;
+
+    return (
+        <div className={`relative w-full overflow-hidden bg-slate-50 ${heightClass} ${className}`}>
+            {isQueued && !firstImage ? (
+                <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-500'>
+                    <Clock className='h-6 w-6 text-amber-500' />
+                    <span className='text-xs'>{t('Queued — waiting for a free slot…')}</span>
+                </div>
+            ) : isRunning && !firstImage ? (
+                <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-500'>
+                    <Loader2 className='h-6 w-6 animate-spin text-indigo-500' />
+                    <span className='text-xs'>{t('Generating…')}</span>
+                </div>
+            ) : hasImage && visibleImage ? (
+                <>
+                    <Image
+                        src={visibleImage.path}
+                        alt={data.prompt || t('Generated image output')}
+                        fill
+                        sizes='380px'
+                        className={imageFit === 'cover' ? 'object-cover' : 'object-contain'}
+                        unoptimized
+                    />
+                    {data.images.length > 1 && (
+                        <div className='nodrag absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-slate-900/75 px-1.5 py-0.5 text-[11px] text-white'>
+                            <button
+                                type='button'
+                                className='rounded px-1 hover:bg-white/20'
+                                onClick={() =>
+                                    actions.onPatch(id, {
+                                        viewIndex: (imageIndex - 1 + data.images.length) % data.images.length
+                                    })
+                                }>
+                                ‹
+                            </button>
+                            <span>
+                                {imageIndex + 1}/{data.images.length}
+                            </span>
+                            <button
+                                type='button'
+                                className='rounded px-1 hover:bg-white/20'
+                                onClick={() => actions.onPatch(id, { viewIndex: (imageIndex + 1) % data.images.length })}>
+                                ›
+                            </button>
+                        </div>
+                    )}
+                </>
+            ) : data.resultMissing ? (
+                <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
+                    <ImageOff className='h-6 w-6 text-amber-500' />
+                    <span className='text-[11px] leading-relaxed text-amber-700'>
+                        {t('This node’s image file was deleted. Run it again to recreate the picture.')}
+                    </span>
+                </div>
+            ) : data.sourceMissing ? (
+                <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
+                    <ImageOff className='h-6 w-6 text-red-400' />
+                    <span className='text-[11px] leading-relaxed text-red-600'>
+                        {t('A source image of this node no longer exists. Re-run its parent node or connect a new source.')}
+                    </span>
+                </div>
+            ) : data.status === 'error' ? (
+                <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
+                    <ImageOff className='h-6 w-6 text-red-400' />
+                    <span className='text-[12px] leading-relaxed text-red-600'>{data.error}</span>
+                </div>
+            ) : (
+                <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-400'>
+                    <Wand2 className='h-6 w-6' />
+                    <span className='px-6 text-center text-[12px]'>{t('Write a prompt, then run this node.')}</span>
+                </div>
+            )}
+
+            {showOverlayActions && hasImage && firstImage && (
+                <div className='absolute top-2 right-2 flex gap-1 opacity-85 transition-opacity hover:opacity-100'>
+                    <button
+                        type='button'
+                        className='nodrag rounded-md border border-slate-200 bg-white/95 p-1.5 text-slate-500 shadow-sm hover:text-slate-900'
+                        title={t('Expand')}
+                        onClick={() => visibleImage && actions.onExpand(visibleImage)}>
+                        <Maximize2 className='h-3.5 w-3.5' />
+                    </button>
+                    <a
+                        className='nodrag rounded-md border border-slate-200 bg-white/95 p-1.5 text-slate-500 shadow-sm hover:text-slate-900'
+                        title={t('Download')}
+                        href={visibleImage?.path}
+                        download={visibleImage?.filename}>
+                        <Download className='h-3.5 w-3.5' />
+                    </a>
+                </div>
+            )}
+        </div>
+    );
+}
+
 const selectClass =
     'nodrag h-7 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[12px] text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50';
+
+/**
+ * Both connection dots, deliberately identical: one on each side of the frame, same size and colour.
+ * Which end of a new link you are holding is decided by the dot you pick up, so the two do not need to
+ * look different — and two different colours read as two different meanings, which they are not.
+ *
+ * React Flow positions each dot itself, centred on the *outer* edge of the card, which leaves half of
+ * it dangling outside the frame like a sticker. The two `1px` offsets below are half the frame's own
+ * width (`border-2`), so the dot ends up centred on the frame line instead, and the ring is painted in
+ * the frame's own colour — the line then runs into the dot from above and below, and the dot reads as
+ * a port set into the frame rather than a bubble stuck onto it.
+ *
+ * Every one of these utilities needs the `!` modifier: React Flow's stylesheet is imported unlayered,
+ * so it outranks Tailwind's plain utilities for the same property.
+ *
+ * Each dot carries a fixed id (see HANDLE_IN / HANDLE_OUT in lib/canvas-lineage.ts) — React Flow
+ * cannot tell two id-less handles of the same node apart, and falls back to the node's first handle,
+ * which is why a link dropped on the left dot used to snap onto the right one.
+ */
+const handleClass =
+    '!z-10 !h-3 !w-3 !border-2 !border-slate-900 !bg-indigo-500 transition-transform hover:!scale-125';
+/** The left dot, pushed half a frame's width inwards so it sits on the frame line. */
+const handleInClass = `${handleClass} !left-px`;
+/** The right dot, mirrored. */
+const handleOutClass = `${handleClass} !right-px`;
+
+/** Quiet icon button used by the collapsed chip's action row. */
+const collapsedActionClass =
+    'nodrag flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-35 disabled:hover:bg-transparent';
 
 const SIZE_OPTIONS: Array<{ value: SizePreset; label: string }> = [
     { value: 'auto', label: 'Auto' },
@@ -89,10 +253,12 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
     const hasImage = !!visibleImage && !data.resultMissing;
     const isEdit = data.kind === 'edit';
     const isImage = data.kind === 'image';
+    const maskDisabled = !data.sourceFilenames[0] || isRunning;
+    const maskTitle = isEdit ? t('Mask') : t('Masks only apply to edit nodes');
     // A mask describes what the model may repaint, so it belongs to the *source* picture of an edit
     // node — never to that node's own result.
     const maskTarget = isEdit && data.sourceFilenames[0]
-        ? { filename: data.sourceFilenames[0], path: `/api/image/${data.sourceFilenames[0]}` }
+        ? { filename: data.sourceFilenames[0], path: imageUrl(data.sourceFilenames[0]) }
         : null;
 
     const sizeLabel = (value: SizePreset) => {
@@ -101,23 +267,185 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
         return dims ? dims.replace('x', '×') : t('Auto');
     };
 
+    /**
+     * Frame shared by both shapes of the card: every node wears the same near-black frame, so a board
+     * of nodes reads as a set of framed pictures. Selection is an indigo halo *around* the frame
+     * rather than a change of frame colour.
+     *
+     * Fixed width: the layout pass places cards using NODE_WIDTH (canvas-layout.ts), so the two numbers
+     * have to agree.
+     */
+    const shellClassName = `w-[380px] rounded-xl border-2 border-slate-900 bg-white text-slate-900 shadow-[0_2px_4px_rgba(15,23,42,0.1),0_18px_40px_-28px_rgba(15,23,42,0.55)] transition-shadow ${
+        selected ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-50' : ''
+    }`;
+
+    /**
+     * Collapsed: the picture, filling a framed card, with one strip of information above it.
+     *
+     * The picture *is* the node, so it keeps the room; everything else shrinks to a header line (what
+     * this node is, what it can do) and a summary line (prompt, what it is wired to, what it cost).
+     * The previous collapsed form kept the header, the model picker, the source strip and a letterboxed
+     * image band, which made it nearly as tall as an open card — collapsing saved almost nothing.
+     */
+    if (collapsed) {
+        const kindLabel = isImage ? t('Uploaded image') : isEdit ? t('Edit Image') : t('Generate Image');
+        const kindDot = isImage ? 'bg-amber-500' : isEdit ? 'bg-violet-500' : 'bg-indigo-500';
+        const summary = data.prompt.trim() || (isImage ? (firstImage?.filename ?? t('Uploaded image')) : t('No prompt yet'));
+        const stats = [
+            data.durationMs ? `${(data.durationMs / 1000).toFixed(1)}s` : null,
+            data.costDetails ? `$${data.costDetails.estimated_cost_usd.toFixed(4)}` : null
+        ].filter(Boolean) as string[];
+
+        return (
+            <div
+                onClick={(event) => {
+                    // The card reopens the node; the buttons inside keep their own meaning.
+                    if ((event.target as HTMLElement).closest('button, a, input, textarea, select')) return;
+                    actions.onPatch(id, { collapsed: false });
+                }}
+                className={`${shellClassName} cursor-pointer`                }>
+                <Handle id={HANDLE_IN} type='target' position={Position.Left} className={handleInClass} />
+
+                {/* what this node is and what it can do */}
+                <div className='space-y-1 border-b border-slate-900/10 px-2.5 py-1.5'>
+                    <div className='flex items-center gap-1.5'>
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${kindDot}`} aria-hidden='true' />
+                        <span className='shrink-0 text-[12px] font-medium text-slate-700'>{kindLabel}</span>
+                        {!isImage && (
+                            <span className='truncate text-[11px] text-slate-400'>· {data.params.model}</span>
+                        )}
+                        <span className='ml-auto flex shrink-0 items-center gap-0.5'>
+                            {!isImage && (
+                                <button
+                                    type='button'
+                                    title={
+                                        isEdit && data.sourceFilenames.length === 0
+                                            ? t('Connect or pick a source image before running an edit node.')
+                                            : isEdit
+                                              ? t('Edit Image')
+                                              : t('Generate')
+                                    }
+                                    disabled={
+                                        isRunning ||
+                                        isQueued ||
+                                        !data.prompt.trim() ||
+                                        (isEdit && data.sourceFilenames.length === 0)
+                                    }
+                                    onClick={() => actions.onRun(id)}
+                                    className='nodrag flex h-6 w-6 items-center justify-center rounded-md bg-indigo-600 text-white shadow-sm transition-colors hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400'>
+                                    {isRunning || isQueued ? (
+                                        <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                    ) : (
+                                        <Play className='h-3.5 w-3.5' />
+                                    )}
+                                </button>
+                            )}
+                            {isImage && (
+                                <button
+                                    type='button'
+                                    title={t('Replace this picture with another file')}
+                                    disabled={isRunning}
+                                    onClick={() => actions.onReplaceImage(id)}
+                                    className={collapsedActionClass}>
+                                    <ImagePlus className='h-3.5 w-3.5' />
+                                </button>
+                            )}
+                            <button
+                                type='button'
+                                title={t('Use as source for edit')}
+                                disabled={!hasImage || isRunning}
+                                onClick={() => actions.onDeriveEdit(id)}
+                                className={collapsedActionClass}>
+                                <Shuffle className='h-3.5 w-3.5' />
+                            </button>
+                            {!isImage && (
+                                <button
+                                    type='button'
+                                    title={maskTitle}
+                                    disabled={maskDisabled}
+                                    onClick={() => maskTarget && actions.onOpenMask(id, maskTarget)}
+                                    className={collapsedActionClass}>
+                                    <Brush className='h-3.5 w-3.5' />
+                                </button>
+                            )}
+                            <button
+                                type='button'
+                                title={t('Expand node')}
+                                onClick={() => actions.onPatch(id, { collapsed: false })}
+                                className={collapsedActionClass}>
+                                <ChevronDown className='h-3.5 w-3.5' />
+                            </button>
+                            <button
+                                type='button'
+                                title={t('Delete node')}
+                                onClick={() => actions.onDelete(id)}
+                                className='nodrag flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600'>
+                                <Trash2 className='h-3.5 w-3.5' />
+                            </button>
+                        </span>
+                    </div>
+
+                    {/* prompt, then what it is wired to and what it cost */}
+                    <div className='flex items-center gap-2'>
+                        <p className='truncate text-[12px] text-slate-600'>{summary}</p>
+                        <span className='ml-auto flex shrink-0 items-center gap-1.5 text-[11px] text-slate-400'>
+                            {isEdit && data.sourceFilenames.length > 0 && (
+                                <span className='flex items-center' title={t('Source Image(s)')}>
+                                    {data.sourceFilenames.slice(0, 3).map((filename) => (
+                                        <Image
+                                            key={filename}
+                                            src={imageUrl(filename)}
+                                            alt=''
+                                            width={16}
+                                            height={16}
+                                            unoptimized
+                                            className='-ml-1 h-4 w-4 rounded-full border border-white bg-slate-100 object-cover first:ml-0'
+                                        />
+                                    ))}
+                                    {data.sourceFilenames.length > 3 && (
+                                        <span className='-ml-1 rounded-full border border-white bg-slate-100 px-1 text-[10px] text-slate-500'>
+                                            +{data.sourceFilenames.length - 3}
+                                        </span>
+                                    )}
+                                </span>
+                            )}
+                            {data.maskFileName && !data.sourceMissing && (
+                                <span title={t('Mask applied')}>
+                                    <Brush className='h-3 w-3 text-amber-500' />
+                                </span>
+                            )}
+                            {stats.length > 0 && <span className='truncate'>{stats.join(' · ')}</span>}
+                        </span>
+                    </div>
+                </div>
+
+                {/* the node itself */}
+                <NodePreview
+                    id={id}
+                    data={data}
+                    imageIndex={imageIndex}
+                    visibleImage={visibleImage}
+                    firstImage={firstImage}
+                    heightClass='h-[210px]'
+                    imageFit='cover'
+                    showOverlayActions={false}
+                    className='rounded-b-[10px]'
+                />
+
+                <Handle
+                    id={HANDLE_OUT}
+                    type='source'
+                    position={Position.Right}
+                    title={t('Drag to connect this node to another')}
+                    className={handleOutClass}
+                />
+            </div>
+        );
+    }
+
     return (
-        <div
-            onClick={(event) => {
-                // A collapsed node opens on click; the chevron and the buttons keep their own meaning.
-                if (!collapsed) return;
-                const target = event.target as HTMLElement;
-                if (target.closest('button, a, input, textarea, select')) return;
-                actions.onPatch(id, { collapsed: false });
-            }}
-            className={`w-[380px] overflow-hidden rounded-xl border bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.06),0_14px_36px_-24px_rgba(15,23,42,0.35)] transition-shadow ${
-                collapsed ? 'cursor-pointer' : ''
-            } ${selected ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-slate-200'}`}>
-            <Handle
-                type='target'
-                position={Position.Left}
-                className='!h-3 !w-3 !border-2 !border-white !bg-indigo-300 transition-transform hover:!scale-125'
-            />
+        <div className={shellClassName}>
+            <Handle id={HANDLE_IN} type='target' position={Position.Left} className={handleInClass} />
 
             {/* header */}
             <div className='flex items-center gap-2 border-b border-slate-100 px-3 py-2'>
@@ -132,7 +460,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                 </span>
                 {!isImage && (
                     <select
-                        className={`${selectClass} ml-auto !w-[150px]`}
+                        className={`${selectClass} ml-auto !w-[168px]`}
                         value={data.params.model}
                         disabled={isRunning}
                         onChange={(event) => actions.onPatchParams(id, { model: event.target.value as GptImageModel })}>
@@ -147,9 +475,9 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                 <button
                     type='button'
                     className='nodrag flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700'
-                    title={collapsed ? t('Expand node') : t('Collapse node')}
-                    onClick={() => actions.onPatch(id, { collapsed: !collapsed })}>
-                    {collapsed ? <ChevronDown className='h-3.5 w-3.5' /> : <ChevronUp className='h-3.5 w-3.5' />}
+                    title={t('Collapse node')}
+                    onClick={() => actions.onPatch(id, { collapsed: true })}>
+                    <ChevronUp className='h-3.5 w-3.5' />
                 </button>
                 <button
                     type='button'
@@ -173,7 +501,7 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                                 key={filename}
                                 className='group/src relative block h-10 w-10 overflow-hidden rounded border border-slate-200 bg-white'>
                                 <Image
-                                    src={`/api/image/${encodeURIComponent(filename)}`}
+                                    src={imageUrl(filename)}
                                     alt={filename}
                                     width={32}
                                     height={32}
@@ -225,140 +553,19 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                 </div>
             )}
 
-            {/* result */}
-            <div className={`relative w-full bg-slate-50 ${collapsed ? 'h-[132px]' : 'h-[210px]'}`}>
-                {isQueued && !firstImage ? (
-                    <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-500'>
-                        <Clock className='h-6 w-6 text-amber-500' />
-                        <span className='text-xs'>{t('Queued — waiting for a free slot…')}</span>
-                    </div>
-                ) : isRunning && !firstImage ? (
-                    <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-500'>
-                        <Loader2 className='h-6 w-6 animate-spin text-indigo-500' />
-                        <span className='text-xs'>{t('Generating…')}</span>
-                    </div>
-                ) : hasImage && visibleImage ? (
-                    <>
-                        <Image
-                            src={visibleImage.path}
-                            alt={data.prompt || t('Generated image output')}
-                            fill
-                            sizes='380px'
-                            className='object-contain'
-                            unoptimized
-                        />
-                        {data.images.length > 1 && (
-                            <div className='nodrag absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-slate-900/75 px-1.5 py-0.5 text-[11px] text-white'>
-                                <button
-                                    type='button'
-                                    className='rounded px-1 hover:bg-white/20'
-                                    onClick={() =>
-                                        actions.onPatch(id, {
-                                            viewIndex: (imageIndex - 1 + data.images.length) % data.images.length
-                                        })
-                                    }>
-                                    ‹
-                                </button>
-                                <span>{imageIndex + 1}/{data.images.length}</span>
-                                <button
-                                    type='button'
-                                    className='rounded px-1 hover:bg-white/20'
-                                    onClick={() => actions.onPatch(id, { viewIndex: (imageIndex + 1) % data.images.length })}>
-                                    ›
-                                </button>
-                            </div>
-                        )}
-                    </>
-                ) : data.resultMissing ? (
-                    <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
-                        <ImageOff className='h-6 w-6 text-amber-500' />
-                        <span className='text-[11px] leading-relaxed text-amber-700'>
-                            {t('This node’s image file was deleted. Run it again to recreate the picture.')}
-                        </span>
-                    </div>
-                ) : data.sourceMissing ? (
-                    <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
-                        <ImageOff className='h-6 w-6 text-red-400' />
-                        <span className='text-[11px] leading-relaxed text-red-600'>
-                            {t('A source image of this node no longer exists. Re-run its parent node or connect a new source.')}
-                        </span>
-                    </div>
-                ) : data.status === 'error' ? (
-                    <div className='flex h-full flex-col items-center justify-center gap-2 px-4 text-center'>
-                        <ImageOff className='h-6 w-6 text-red-400' />
-                        <span className='text-[12px] leading-relaxed text-red-600'>{data.error}</span>
-                    </div>
-                ) : (
-                    <div className='flex h-full flex-col items-center justify-center gap-2 text-slate-400'>
-                        <Wand2 className='h-6 w-6' />
-                        <span className='px-6 text-center text-[12px]'>{t('Write a prompt, then run this node.')}</span>
-                    </div>
-                )}
-
-                {hasImage && firstImage && (
-                    <div className='absolute top-2 right-2 flex gap-1 opacity-85 transition-opacity hover:opacity-100'>
-                        <button
-                            type='button'
-                            className='nodrag rounded-md border border-slate-200 bg-white/95 p-1.5 text-slate-500 shadow-sm hover:text-slate-900'
-                            title={t('Expand')}
-                            onClick={() => visibleImage && actions.onExpand(visibleImage)}>
-                            <Maximize2 className='h-3.5 w-3.5' />
-                        </button>
-                        <a
-                            className='nodrag rounded-md border border-slate-200 bg-white/95 p-1.5 text-slate-500 shadow-sm hover:text-slate-900'
-                            title={t('Download')}
-                            href={visibleImage.path}
-                            download={visibleImage.filename}>
-                            <Download className='h-3.5 w-3.5' />
-                        </a>
-                    </div>
-                )}
-            </div>
+            {/* result — the same preview the collapsed card shows, with the whole picture visible */}
+            <NodePreview
+                id={id}
+                data={data}
+                imageIndex={imageIndex}
+                visibleImage={visibleImage}
+                firstImage={firstImage}
+                heightClass='h-[210px]'
+                imageFit='contain'
+                showOverlayActions
+            />
 
             {/* prompt + actions */}
-            {collapsed ? (
-                <div className='space-y-1.5 px-3 py-2'>
-                    <p className='line-clamp-2 text-[12px] leading-snug text-slate-500'>
-                        {data.prompt.trim() || t('No prompt yet')}
-                    </p>
-                    <div className='flex items-center gap-1'>
-                        {!isImage && (
-                            <button
-                                type='button'
-                                title={isEdit ? t('Edit Image') : t('Generate')}
-                                disabled={isRunning || isQueued || !data.prompt.trim()}
-                                onClick={() => actions.onRun(id)}
-                                className='nodrag rounded-md bg-indigo-600 p-1.5 text-white shadow-sm hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400'>
-                                {isRunning || isQueued ? (
-                                    <Loader2 className='h-3.5 w-3.5 animate-spin' />
-                                ) : (
-                                    <Play className='h-3.5 w-3.5' />
-                                )}
-                            </button>
-                        )}
-                        <button
-                            type='button'
-                            title={t('Use as source for edit')}
-                            disabled={!hasImage || isRunning}
-                            onClick={() => actions.onDeriveEdit(id)}
-                            className='nodrag rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40'>
-                            <Shuffle className='h-3.5 w-3.5' />
-                        </button>
-                        <button
-                            type='button'
-                            title={isEdit ? t('Mask') : t('Masks only apply to edit nodes')}
-                            disabled={!maskTarget || isRunning}
-                            onClick={() => maskTarget && actions.onOpenMask(id, maskTarget)}
-                            className='nodrag rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40'>
-                            <Brush className='h-3.5 w-3.5' />
-                        </button>
-                        <span className='ml-auto flex items-center gap-2 text-[11px] text-slate-400'>
-                            {data.durationMs ? <span>{(data.durationMs / 1000).toFixed(1)}s</span> : null}
-                            {data.costDetails ? <span>${data.costDetails.estimated_cost_usd.toFixed(4)}</span> : null}
-                        </span>
-                    </div>
-                </div>
-            ) : (
             <div className='space-y-2 px-3 py-2.5'>
                 {!isImage && (
                     <Textarea
@@ -443,8 +650,8 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         type='button'
                         variant='outline'
                         size='sm'
-                        disabled={!maskTarget || isRunning}
-                        title={isEdit ? t('Mask') : t('Masks only apply to edit nodes')}
+                        disabled={maskDisabled}
+                        title={maskTitle}
                         onClick={() => maskTarget && actions.onOpenMask(id, maskTarget)}
                         className='nodrag h-8 border-slate-200 px-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900'>
                         <Brush className='h-3.5 w-3.5' />
@@ -460,8 +667,9 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                         {showParams ? t('Hide parameters') : t('Show parameters')}
                     </button>
                     <span className='ml-auto'>
-                        {sizeLabel(data.params.size ?? 'auto')} · {data.params.quality ?? 'auto'} ·{' '}
-                        {(data.params.outputFormat ?? 'png').toUpperCase()}
+                        {`${sizeLabel(data.params.size ?? 'auto')} · ${data.params.quality ?? 'auto'} · ${(
+                            data.params.outputFormat ?? 'png'
+                        ).toUpperCase()}`}
                     </span>
                 </div>
                 )}
@@ -532,13 +740,13 @@ export function TaskNode({ id, data, selected }: NodeProps<TaskNodeType>) {
                     </div>
                 )}
             </div>
-            )}
 
             <Handle
+                id={HANDLE_OUT}
                 type='source'
                 position={Position.Right}
                 title={t('Drag to connect this node to another')}
-                className='!h-3.5 !w-3.5 !border-2 !border-white !bg-indigo-500 transition-transform hover:!scale-125'
+                className={handleOutClass}
             />
         </div>
     );

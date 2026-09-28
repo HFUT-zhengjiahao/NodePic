@@ -1,3 +1,4 @@
+import { checkPassword, readAuthCookie } from '@/lib/api-auth';
 import { INDEX_FILENAME } from '@/lib/image-index';
 import fs from 'fs/promises';
 import { lookup } from 'mime-types';
@@ -8,6 +9,14 @@ import path from 'path';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ filename: string }> }) {
     const { filename } = await params;
+
+    // Pictures are served through <img src>, which cannot carry a body, so the auth cookie is the
+    // only credential available here. Without this check APP_PASSWORD guarded every write yet left
+    // the whole gallery readable by anyone who could reach the port.
+    const authFailure = checkPassword(readAuthCookie(request));
+    if (authFailure) {
+        return NextResponse.json({ error: authFailure.error }, { status: authFailure.status });
+    }
 
     if (!filename) {
         return NextResponse.json({ error: 'Filename is required' }, { status: 400 });

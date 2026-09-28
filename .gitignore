@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the template: it documents the optional variables and holds no secrets.
+!.env.example
 
 # vercel
 .vercel
@@ -40,8 +42,19 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated images
+# generated pictures, the image registry and the trash inside it.
+# A fresh clone starts with an empty canvas: the app creates this folder on first use.
 generated-images/
 
 # local run state (pid/log of the dev server started from the shortcut)
 .run/
+
+# per-machine settings. The API key typed into the settings panel is stored here, so this file
+# must never be committed — it is why the panel can ship without credentials.
+.playground-settings.json
+
+# exports of the local workspace (canvas nodes, history, preferences) and one-off canvas snapshots.
+# These are personal data, not project files.
+workspace-backup/
+canvas-backups/
+NOTES.local.md

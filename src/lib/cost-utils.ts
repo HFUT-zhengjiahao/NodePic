@@ -50,7 +50,9 @@ export function tokensToUsd(tokens: number, perMillion: number): number {
  */
 export function calculateApiCost(usage: ApiUsage | undefined | null, model: GptImageModel): CostDetails | null {
     if (!usage || !usage.input_tokens_details || usage.output_tokens === undefined || usage.output_tokens === null) {
-        console.warn('Invalid or missing usage data for cost calculation:', usage);
+        // Only a *malformed* usage object (present but not the expected shape) is worth a warning —
+        // this used to log on every call.
+        if (usage) console.warn('Invalid usage data for cost calculation:', usage);
         return null;
     }
 
