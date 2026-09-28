@@ -66,8 +66,12 @@ else
     else
         COMMIT=$(git commit-tree "$TREE" -m "$MESSAGE")
     fi
-    git update-ref "refs/heads/$BRANCH" "$COMMIT"
-    echo "✓ 已生成发布快照 $BRANCH → $(git rev-parse --short "$COMMIT")"
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "· 会生成发布快照 $BRANCH → $(git rev-parse --short "$COMMIT")"
+    else
+        git update-ref "refs/heads/$BRANCH" "$COMMIT"
+        echo "✓ 已生成发布快照 $BRANCH → $(git rev-parse --short "$COMMIT")"
+    fi
     echo "  包含 $(git ls-tree -r "$BRANCH" --name-only | wc -l | tr -d ' ') 个文件；已剔除：${PRIVATE_PATHS[*]}"
 fi
 
