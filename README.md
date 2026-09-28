@@ -80,6 +80,28 @@ npm run build && npm start
 
 设置页里的值**优先于**环境变量；两者都没有时，生成会返回 `No API key configured.` 并提示去哪里填。改动即时生效，不需要重启。
 
+### 🤖 让 AI 助手一句话装好（可选）
+
+如果你在用 Claude Code / Codex / Cursor / DSH 这类**能在你机器上执行命令**的助手，不用自己敲命令，把下面这句原样发给它即可：
+
+```text
+把 https://github.com/HFUT-zhengjiahao/NodePic 克隆到本地跑起来：确认 Node ≥ 22，npm install 后 npm run dev，打开 http://localhost:3000 确认左上角 NodePic 徽标与字标正常显示、画布是空的，然后把访问地址和「设置 → API 接口」填密钥的步骤告诉我。
+```
+
+助手比较"听话但需要细节"时，用这句更明确的（含自检要求）：
+
+```text
+帮我在这台机器上装好 NodePic（https://github.com/HFUT-zhengjiahao/NodePic）：1) 确认 node -v ≥ 22；2) git clone 并 npm install；3) 需要环境变量时 cp .env.example .env.local；4) npm run dev（3000 被占用就换成 PORT=3210）；5) 打开 http://localhost:3000，确认页面标题含 NodePic、/logo.png 与 /wordmark.png 返回 200；最后把访问地址、以及我需要做的事（设置 → API 接口 填密钥）列给我。不要把我的密钥写进任何文件或提交。
+```
+
+英文版（发给英文助手）：
+
+```text
+Clone https://github.com/HFUT-zhengjiahao/NodePic and get it running on this machine: check Node >= 22, run npm install, then npm run dev (use PORT=3210 if 3000 is taken), open http://localhost:3000 and confirm the page title contains NodePic and /logo.png returns 200, then tell me the URL and where to paste my API key. Do not write my API key into any file or commit.
+```
+
+> 助手能做的到 `npm run dev` 为止：**API 密钥必须由你本人填**（应用内「设置 → API 接口」），生成图片才会真正开始计费。
+
 ## ⚙️ 配置
 
 ### 应用内设置（左下角「设置」）
